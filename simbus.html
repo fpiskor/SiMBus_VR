@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0D3B66">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SiMBus">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230D3B66'/%3E%3Ctext x='50' y='68' font-family='Georgia,serif' font-size='58' font-weight='700' fill='%23F4A300' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
+<title>SiMBus — Vozni red</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue-900:#16224B;
+    --blue-800:#1C2F63;
+    --blue-700:#2B4A8C;
+    --amber:#D9A62E;
+    --amber-dark:#B8871C;
+    --green:#3AA43D;
+    --green-dark:#2F8A32;
+    --red:#B3261E;
+    --bg:#EEF1F5;
+    --surface:#FFFFFF;
+    --ink:#12212E;
+    --muted:#5C6B7A;
+    --line:#DDE3EA;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    justify-content:center;
+  }
+  #app{
+    width:100%;
+    max-width:460px;
+    min-height:100vh;
+    background:var(--bg);
+    position:relative;
+    box-shadow:0 0 40px rgba(13,59,102,0.12);
+    overflow-x:hidden;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    background:linear-gradient(135deg, #234070, var(--blue-900) 65%);
+    color:#fff;
+    padding:18px 18px 16px;
+    position:sticky;
+    top:0;
+    z-index:40;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .brand-mark{
+    width:6px;height:26px;
+    border-radius:3px;
+    background:var(--amber);
+    flex-shrink:0;
+  }
+  .brand-name{
+    font-family:'Poppins',sans-serif;
+    font-weight:700;
+    font-size:21px;
+    letter-spacing:0.2px;
+  }
+  .brand-name .sim{color:#fff;}
+  .brand-name .bus{color:#5CC65E;}
+  .brand-sub{
+    font-size:11px;
+    color:#B9CBDE;
+    margin-top:-2px;
+    letter-spacing:0.4px;
+    text-transform:uppercase;
+  }
+  .search-wrap{
+    position:relative;
+  }
+  .search-wrap input{
+    width:100%;
+    background:rgba(255,255,255,0.12);
+    border:1px solid rgba(255,255,255,0.2);
+    border-radius:10px;
+    padding:11px 14px 11px 38px;
+    color:#fff;
+    font-size:14.5px;
+    font-family:'Inter',sans-serif;
+    outline:none;
+  }
+  .search-wrap input::placeholder{color:#B9CBDE;}
+  .search-wrap svg{
+    position:absolute;left:12px;top:50%;transform:translateY(-50%);
+    width:16px;height:16px;stroke:#B9CBDE;
+  }
+  .live-clock{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    font-weight:600;
+    color:#B9CBDE;
+    margin-left:auto;
+    flex-shrink:0;
+  }
+  .live-clock .dot{width:5px;height:5px;}
+  .brand{justify-content:space-between;}
+
+  /* ---------- Line list ---------- */
+  .section-label{
+    font-family:'Oswald',sans-serif;
+    font-size:12px;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    color:var(--muted);
+    padding:18px 18px 8px;
+  }
+  .line-list{
+    padding:0 14px 24px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .line-card{
+    background:var(--surface);
+    border-radius:var(--radius);
+    padding:13px 14px;
+    display:flex;
+    align-items:center;
+    gap:13px;
+    cursor:pointer;
+    border:1px solid var(--line);
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .line-card:active{transform:scale(0.98);}
+  .line-badge{
+    font-family:'Oswald',sans-serif;
+    font-weight:700;
+    font-size:17px;
+    color:#fff;
+    background:var(--blue-900);
+    min-width:46px;
+    height:40px;
+    border-radius:8px;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .line-info{flex:1;min-width:0;}
+  .line-route{
+    font-weight:600;
+    font-size:14.5px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .line-meta{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:2px;
+  }
+  .line-next{
+    text-align:right;
+    flex-shrink:0;
+  }
+  .line-next .lbl{
+    font-size:9.5px;
+    text-transform:uppercase;
+    letter-spacing:0.6px;
+    color:var(--muted);
+    display:block;
+  }
+  .line-next .val{
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:600;
+    font-size:14px;
+    color:var(--green);
+  }
+  .line-next .val.off{color:var(--muted);}
+
+  /* ---------- Detail view ---------- */
+  #detail{display:none;}
+  .backbtn{
+    display:flex;align-items:center;gap:6px;
+    color:#fff;
+    font-size:13.5px;
+    font-weight:500;
+    margin-bottom:12px;
+    cursor:pointer;
+    width:fit-content;
+  }
+  .backbtn svg{width:16px;height:16px;stroke:#fff;}
+
+  .detail-header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:14px;
+  }
+  .detail-badge{
+    font-family:'Oswald',sans-serif;
+    font-weight:700;
+    font-size:22px;
+    background:var(--amber);
+    color:var(--blue-900);
+    min-width:56px;height:48px;
+    border-radius:9px;
+    display:flex;align-items:center;justify-content:center;
+    transform:skewX(-6deg);
+    flex-shrink:0;
+  }
+  .detail-badge span{transform:skewX(6deg);}
+  .detail-title{
+    font-family:'Oswald',sans-serif;
+    font-size:17px;
+    font-weight:600;
+    line-height:1.2;
+  }
+  .detail-title small{
+    display:block;
+    font-family:'Inter',sans-serif;
+    font-size:11.5px;
+    color:#B9CBDE;
+    font-weight:400;
+    margin-top:2px;
+    letter-spacing:0.3px;
+  }
+
+  /* split flap live card */
+  .live-card{
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.16);
+    border-radius:12px;
+    padding:12px 14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .live-left .lbl{
+    font-size:10px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:#B9CBDE;
+    display:flex;align-items:center;gap:5px;
+  }
+  .dot{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--amber);
+    animation:pulse 1.6s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(244,163,0,0.55);}
+    70%{box-shadow:0 0 0 7px rgba(244,163,0,0);}
+    100%{box-shadow:0 0 0 0 rgba(244,163,0,0);}
+  }
+  .live-left .desc{
+    font-size:12.5px;
+    color:#fff;
+    margin-top:3px;
+    max-width:170px;
+  }
+  .flap-row{display:flex;gap:3px;}
+  .flap{
+    background:#0A2A49;
+    border-radius:5px;
+    width:26px;height:34px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:600;
+    font-size:19px;
+    color:var(--amber);
+    position:relative;
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,0.08);
+  }
+  .flap::after{
+    content:'';
+    position:absolute;left:0;right:0;top:50%;
+    height:1px;background:rgba(0,0,0,0.45);
+  }
+  .flap.colon{
+    background:transparent;
+    width:8px;
+    color:var(--amber);
+  }
+  .flap.colon::after{display:none;}
+
+  /* tabs */
+  .tabs{
+    display:flex;
+    background:var(--surface);
+    margin:16px 16px 0;
+    border-radius:11px;
+    padding:4px;
+    border:1px solid var(--line);
+  }  .tab{
+    flex:1;
+    text-align:center;
+    padding:9px 6px;
+    font-size:13px;
+    font-weight:600;
+    color:var(--muted);
+    border-radius:8px;
+    cursor:pointer;
+    transition:all .15s ease;
+  }
+  .tab.active{
+    background:var(--blue-900);
+    color:#fff;
+  }
+
+  .date-select{
+    margin:10px 16px 0;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:11px;
+    padding:9px 13px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .date-select label{
+    font-size:12px;
+    font-weight:600;
+    color:var(--muted);
+  }
+  .date-select input[type="date"]{
+    border:1px solid var(--line);
+    border-radius:7px;
+    padding:5px 8px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    color:var(--ink);
+    background:#F7F9FA;
+  }
+  .weekday-label{
+    margin-left:auto;
+    font-size:11.5px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    text-transform:uppercase;
+    color:var(--muted);
+    padding:3px 9px;
+    border-radius:20px;
+    background:#EDEFF2;
+  }
+  .weekday-label.is-today{
+    color:var(--green);
+    background:#E7F3E8;
+  }
+
+  .daybar{
+    margin:12px 16px 0;
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .day-chip{
+    font-size:11.5px;
+    font-weight:600;
+    padding:5px 10px;
+    border-radius:20px;
+    background:#fff;
+    border:1px solid var(--line);
+    color:var(--muted);
+  }
+  .day-chip.today{
+    background:#E7F3E8;
+    border-color:#BFE0C2;
+    color:var(--green);
+  }
+
+  /* departure list (shown first when a line is opened) */
+  .run-list{
+    padding:16px 16px 28px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .run-card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:13px 15px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    cursor:pointer;
+    border-left:3px solid transparent;
+    transition:transform .12s ease;
+  }
+  .run-card:active{transform:scale(0.98);}
+  .run-card.today{border-left-color:var(--amber);}
+  .run-time-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:700;
+    font-size:19px;
+    color:var(--blue-900);
+    min-width:60px;
+  }
+  .run-info{flex:1;min-width:0;}
+  .run-route{
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--ink);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .run-meta{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    margin-top:4px;
+    flex-wrap:wrap;
+  }
+  .run-days-label{
+    font-size:11.5px;
+    color:var(--muted);
+  }
+  .run-today-chip{
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    color:var(--green);
+    background:#E7F3E8;
+    border-radius:20px;
+    padding:2px 8px;
+    text-transform:uppercase;
+  }
+  .run-today-chip.off{
+    color:var(--muted);
+    background:#EDEFF2;
+  }
+  .run-arrow{
+    flex-shrink:0;
+    width:18px;height:18px;
+    stroke:#B9C4CF;
+  }
+  .run-list-head{
+    padding:16px 16px 0;
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  /* single-run detail: back link + summary */
+  .run-detail-head{
+    padding:14px 16px 0;
+  }
+  .run-back{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-size:13px;
+    font-weight:600;
+    color:var(--blue-700);
+    cursor:pointer;
+    width:fit-content;
+    margin-bottom:10px;
+  }
+  .run-back svg{width:14px;height:14px;stroke:var(--blue-700);}
+  .run-summary{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .run-summary-title{
+    font-family:'Oswald',sans-serif;
+    font-size:15px;
+    font-weight:600;
+    color:var(--blue-900);
+  }
+
+  /* route panel */
+  .route-panel{
+    margin:14px 16px 28px;
+    background:var(--surface);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  .route-panel-head{
+    padding:12px 16px 10px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+  }
+  .route-panel-head h3{
+    margin:0;
+    font-family:'Oswald',sans-serif;
+    font-size:13px;
+    letter-spacing:0.6px;
+    text-transform:uppercase;
+    color:var(--blue-900);
+  }
+  .route-panel-head span{
+    font-size:11.5px;
+    color:var(--muted);
+  }
+
+  .route-body{
+    display:flex;
+    padding:14px 10px 16px 0;
+  }
+  .rail-col{
+    width:34px;
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    position:relative;
+    padding-top:6px;
+  }
+  .rail-line{
+    position:absolute;
+    top:14px;bottom:22px;
+    width:3px;
+    background:var(--line);
+    border-radius:2px;
+  }
+  .rail-line.active-track{background:var(--blue-700);}
+  .stop-dot{
+    width:11px;height:11px;
+    border-radius:50%;
+    background:#fff;
+    border:3px solid var(--blue-700);
+    z-index:2;
+    margin-bottom:0;
+    flex-shrink:0;
+  }
+  .stop-dot.dim{border-color:#B9C4CF;}
+  .stop-dot.next{
+    border-color:var(--amber);
+    box-shadow:0 0 0 4px rgba(244,163,0,0.22);
+  }
+  .bus-marker{
+    position:absolute;
+    left:50%;
+    top:6px;
+    transform:translate(-50%,-50%);
+    width:20px;height:20px;
+    border-radius:50%;
+    background:var(--amber);
+    border:2px solid #fff;
+    box-shadow:0 0 0 3px rgba(244,163,0,0.28), 0 2px 5px rgba(13,59,102,0.35);
+    z-index:4;
+    display:flex;align-items:center;justify-content:center;
+    transition:top 1s linear;
+  }
+  .bus-marker svg{width:11px;height:11px;fill:var(--blue-900);}
+  .stop-row{
+    display:flex;
+    align-items:center;
+    min-height:52px;
+  }
+  .stop-name-col{
+    flex:1;
+    min-width:0;
+    padding-right:8px;
+  }
+  .stop-name{
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--ink);
+    line-height:1.25;
+  }
+  .stop-name.endpoint{color:var(--blue-900);}
+  .stop-km{
+    font-size:11px;
+    color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;
+    margin-top:1px;
+  }
+  .stop-times{
+    display:flex;
+    gap:6px;
+    flex-shrink:0;
+  }
+  .time-chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    font-weight:600;
+    min-width:48px;
+    text-align:center;
+    padding:5px 4px;
+    border-radius:7px;
+    background:#F1F4F7;
+    color:var(--ink);
+  }
+  .time-chip.dash{
+    color:#C3CBD3;
+    background:transparent;
+  }
+  .time-chip.highlight{
+    background:var(--amber);
+    color:var(--blue-900);
+  }
+  .time-chip.past{
+    opacity:0.4;
+  }
+
+  .col-headers{
+    display:flex;
+    gap:6px;
+    padding-left:0;
+    justify-content:flex-end;
+  }
+  .col-head{
+    min-width:48px;
+    text-align:center;
+    font-size:9.5px;
+    font-weight:700;
+    letter-spacing:0.4px;
+    color:var(--muted);
+    text-transform:uppercase;
+  }
+
+  .demo-tag{
+    color:var(--red);
+    font-weight:700;
+    letter-spacing:0.4px;
+    font-size:10px;
+  }
+  .demo-banner{
+    margin:12px 16px 0;
+    background:#FBEAEA;
+    border:1px solid #F0C6C6;
+    color:#8A2A24;
+    font-size:12px;
+    line-height:1.5;
+    border-radius:10px;
+    padding:10px 13px;
+  }
+  .empty-state{
+    padding:60px 30px;
+    text-align:center;
+    color:var(--muted);
+  }
+  .empty-state svg{width:40px;height:40px;stroke:#B9C4CF;margin-bottom:10px;}
+  .empty-state p{font-size:13.5px;margin:0;}
+
+  .footer-note{
+    text-align:center;
+    font-size:11px;
+    color:var(--muted);
+    padding:0 30px 26px;
+    line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== LIST VIEW ===================== -->
+  <div id="list-view">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div>
+          <div class="brand-name"><span class="sim">SiM</span><span class="bus">Bus</span></div>
+          <div class="brand-sub">Vozni red uživo</div>
+        </div>
+        <div class="live-clock" id="listClock"><span class="dot"></span><span></span></div>
+      </div>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="text" placeholder="Pretraži liniju ili mjesto…" autocomplete="off">
+      </div>
+    </div>
+    <div class="section-label">Linije</div>
+    <div class="line-list" id="lineList"></div>
+    <div class="footer-note" id="footerNote">Podaci o vožnji temelje se na objavljenom voznom redu prijevoznika. Provjerite ploču na stajalištu prije putovanja.</div>
+  </div>
+
+  <!-- ===================== DETAIL VIEW ===================== -->
+  <div id="detail-view" style="display:none;">
+    <div class="topbar">
+      <div class="backbtn" id="backBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Sve linije
+        <div class="live-clock" id="detailClock" style="margin-left:12px;"><span class="dot"></span><span></span></div>
+      </div>
+      <div class="detail-header">
+        <div class="detail-badge"><span id="detailBadge"></span></div>
+        <div class="detail-title">
+          <div id="detailTitle"></div>
+          <small id="detailSub"></small>
+        </div>
+      </div>
+      <div class="live-card">
+        <div class="live-left">
+          <div class="lbl"><span class="dot"></span> SLJEDEĆI POLAZAK</div>
+          <div class="desc" id="liveDesc">—</div>
+        </div>
+        <div class="flap-row" id="flapRow"></div>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="date-select">
+      <label for="dateInput">Pregled za</label>
+      <input type="date" id="dateInput">
+      <span id="dateWeekday" class="weekday-label"></span>
+    </div>
+    <div id="routePanels"></div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ============================================================
+   DATA MODEL
+   days: string of digits 1-7 (1=Pon ... 7=Ned) when the run operates
+   direction times are given in physical stop order (top of source table);
+   we render "povratak" runs in reversed stop order so the listed
+   times read in actual travel chronology.
+   ============================================================ */
+
+const DAY_LABELS = ["Pon","Uto","Sri","Čet","Pet","Sub","Ned"];
+
+function dayPatternLabel(days){
+  if(days === "1234567") return "Svaki dan";
+  if(days === "12345") return "Radnim danom (Pon–Pet)";
+  if(days === "6") return "Subotom";
+  if(days === "7") return "Nedjeljom i blagdanom";
+  if(days === "67") return "Vikendom";
+  return days.split("").map(d=>DAY_LABELS[parseInt(d,10)-1]).join(", ");
+}
+
+const LINE_205_RUNS = [
+  {id:"01", dir:"polazak", days:"12345", times:["14:15","14:17","14:20","14:24","14:29","14:32"]},
+  {id:"02", dir:"polazak", days:"12345", times:["12:00","12:02","12:06","-","-","-"]},
+  {id:"03", dir:"povratak", days:"12345", times:["07:53","07:50","07:47","07:43","07:38","07:35"]},
+  {id:"04", dir:"povratak", days:"12345", times:["12:12","12:10","12:06","-","-","-"]},
+];
+
+const DEFAULT_LINES = [
+  {
+    code: "205",
+    from: "TOPUSKO",
+    to: "GLINA",
+    stops: [
+      {name:"TOPUSKO", km:0},
+      {name:"TOPUSKO ŽELJ.ST", km:3},
+      {name:"BATINOVA KOSA", km:5},
+      {name:"ŠATORNJA", km:8},
+      {name:"GORNJI VIDUŠEVAC", km:13},
+      {name:"GLINA", km:16},
+    ],
+    // A line can have several seasonal timetables; SiMBus picks the one
+    // whose period covers the date being viewed. Line 205 runs the same
+    // times all year, so both periods point at the same run list — but
+    // other lines can give each period its own `runs` array.
+    schedules: [
+      { season:{from:"09-01", to:"06-30", label:"1.9. – 30.6."}, runs: LINE_205_RUNS },
+      { season:{from:"07-01", to:"08-30", label:"1.7. – 30.8."}, runs: LINE_205_RUNS },
+    ]
+  },
+  {
+    code: "212",
+    from: "TOPUSKO",
+    to: "SISAK",
+    isDemo: true, // not a real published timetable — shown only to demonstrate the multi-line UI
+    stops: [
+      {name:"TOPUSKO", km:0},
+      {name:"GVOZD", km:9},
+      {name:"MALA SOLINA", km:19},
+      {name:"SISAK", km:31},
+    ],
+    runs: [
+      {id:"01", dir:"polazak", days:"12345", times:["05:40","05:58","06:12","06:35"]},
+      {id:"02", dir:"polazak", days:"1234567", times:["15:10","15:28","15:42","16:05"]},
+      {id:"03", dir:"povratak", days:"12345", times:["13:20","13:00","12:47","12:25"]},
+      {id:"04", dir:"povratak", days:"1234567", times:["19:45","19:25","19:12","18:50"]},
+    ]
+  },
+  {
+    code: "230",
+    from: "GLINA",
+    to: "PETRINJA",
+    isDemo: true,
+    stops: [
+      {name:"GLINA", km:0},
+      {name:"MAJA", km:8},
+      {name:"HRASTOVICA", km:17},
+      {name:"PETRINJA", km:24},
+    ],
+    runs: [
+      {id:"01", dir:"polazak", days:"12345", times:["06:15","06:32","06:50","07:05"]},
+      {id:"03", dir:"povratak", days:"12345", times:["14:40","14:22","14:05","13:50"]},
+    ]
+  }
+];
+
+/* ============================================================
+   "BAZA" — data layer with two possible backends:
+
+   1) SUPABASE (real, works anywhere once this file is hosted on
+      its own domain — outside Claude.ai too). Fill in the two
+      constants below with your project's URL + public anon key
+      once you've created a Supabase project and run the setup
+      SQL (see supabase-setup.sql). Reads happen with the anon
+      key; edits are made in Supabase's own Table Editor by
+      whoever owns the project (not exposed to site visitors).
+
+   2) window.storage fallback — Anthropic's storage, only works
+      while this file is opened inside a Claude.ai conversation/
+      artifact. Used automatically whenever Supabase isn't
+      configured yet, or briefly unreachable, so the app keeps
+      working either way.
+   ============================================================ */
+const SUPABASE_URL = 'https://vdawvqirjwlzvjzijhyd.supabase.co';       // e.g. 'https://xxxxxxxx.supabase.co'
+const SUPABASE_ANON_KEY = 'sb_publishable_2vQX9TolrGkdl2hlOHSG4g_NAKuHKUb';  // the public "anon" key from Project Settings → API
+
+const DB_KEY = 'simbus-lines';
+let LINES = [];
+let dbReady = false;
+let dbSource = null; // 'supabase' | 'local' — shown in the UI so it's clear which backend is live
+
+function rowToLine(row){
+  return {
+    code: row.code,
+    from: row.from_name,
+    to: row.to_name,
+    isDemo: !!row.is_demo,
+    stops: row.stops,
+    ...(row.schedules ? {schedules: row.schedules} : {}),
+    ...(row.runs ? {runs: row.runs} : {}),
+  };
+}
+
+async function tryLoadFromSupabase(){
+  if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  if(!window.supabase || !window.supabase.createClient) return false;
+  try{
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data, error } = await client.from('lines').select('*').order('code');
+    if(error) throw error;
+    if(!data || !data.length) return false;
+    LINES = data.map(rowToLine);
+    dbSource = 'supabase';
+    return true;
+  } catch(e){
+    console.warn('Supabase nedostupan, prelazim na lokalnu bazu.', e);
+    return false;
+  }
+}
+
+async function loadLinesFromDB(){
+  if(await tryLoadFromSupabase()){
+    dbReady = true;
+    return;
+  }
+
+  let storedValue = null;
+  try{
+    const result = await window.storage.get(DB_KEY, true);
+    storedValue = result ? result.value : null;
+  } catch(e){
+    storedValue = null; // key not yet seeded, or storage momentarily unavailable
+  }
+
+  if(storedValue){
+    try{ LINES = JSON.parse(storedValue); }
+    catch(e){ LINES = DEFAULT_LINES; }
+  } else {
+    LINES = DEFAULT_LINES;
+    try{
+      await window.storage.set(DB_KEY, JSON.stringify(DEFAULT_LINES), true);
+    } catch(e){
+      console.warn('Nije uspjelo prvo spremanje u bazu — nastavljam s lokalnim podacima za ovu sesiju.', e);
+    }
+  }
+  dbSource = 'local';
+  dbReady = true;
+}
+
+async function saveLinesToDB(){
+  // Only relevant for the window.storage fallback — Supabase edits happen
+  // in its own dashboard, not by writing back the whole LINES array.
+  if(dbSource !== 'local') return true;
+  try{
+    await window.storage.set(DB_KEY, JSON.stringify(LINES), true);
+    return true;
+  } catch(e){
+    console.error('Spremanje u bazu nije uspjelo.', e);
+    return false;
+  }
+}
+
+
+function nowParts(){
+  const d = new Date();
+  const isoDay = d.getDay() === 0 ? 7 : d.getDay(); // 1..7, Mon..Sun
+  return {d, isoDay, minutes: d.getHours()*60 + d.getMinutes()};
+}
+function timeToMinutes(t){
+  if(t === "-" || !t) return null;
+  const [h,m] = t.split(":").map(Number);
+  return h*60+m;
+}
+function runsToday(run, isoDay){
+  return run.days.includes(String(isoDay));
+}
+
+/* Season/validity period support (e.g. "vrijedi od 1.9. do 30.6.").
+   period = { from:"MM-DD", to:"MM-DD" }. Handles ranges that wrap the
+   New Year (from > to, e.g. school-year timetables running Sep -> Jun). */
+function mmdd(date){
+  return String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
+}
+function isWithinSeason(period, date){
+  if(!period) return true;
+  const val = mmdd(date);
+  const {from, to} = period;
+  if(from <= to){
+    return val >= from && val <= to;
+  }
+  return val >= from || val <= to; // wraps across Dec 31 -> Jan 1
+}
+function isoDayOf(date){
+  return date.getDay() === 0 ? 7 : date.getDay();
+}
+function isSameCalendarDay(a,b){
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+function pad2(n){ return String(n).padStart(2,'0'); }
+function toISODate(date){
+  return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
+}
+
+/* Picks the seasonal timetable (from line.schedules) that covers `date`.
+   Falls back to a single implicit schedule for lines that don't define
+   seasonal variants at all. Returns null if no defined period covers
+   the date (a genuine gap in the published timetable). */
+function getScheduleForDate(line, date){
+  if(line.schedules){
+    return line.schedules.find(sch => isWithinSeason(sch.season, date)) || null;
+  }
+  return { season: line.season || null, runs: line.runs };
+}
+
+/* find the next upcoming departure across all runs of a line, considering
+   only the line's ORIGIN stop time for each run (col index 0) */
+function nextDeparture(line){
+  const {isoDay, minutes} = nowParts();
+  const today = new Date();
+  let best = null;
+  // check today and following days up to 8 ahead
+  for(let offset=0; offset<8; offset++){
+    const checkDay = ((isoDay - 1 + offset) % 7) + 1;
+    const checkDate = new Date(today);
+    checkDate.setDate(today.getDate() + offset);
+    const schedule = getScheduleForDate(line, checkDate);
+    if(!schedule) continue; // no published timetable for this date
+    schedule.runs.forEach(run=>{
+      if(!run.days.includes(String(checkDay))) return;
+      const originTime = run.dir === "polazak" ? run.times[0] : run.times[run.times.length-1];
+      const mins = timeToMinutes(originTime);
+      if(mins === null) return;
+      if(offset === 0 && mins <= minutes) return; // already passed today
+      const rank = offset*1440 + mins;
+      if(best === null || rank < best.rank){
+        best = {rank, run, time:originTime, offset, dir:run.dir};
+      }
+    });
+  }
+  return best;
+}
+
+/* ============================================================
+   LIST VIEW RENDER
+   ============================================================ */
+const lineListEl = document.getElementById('lineList');
+const searchInput = document.getElementById('searchInput');
+
+function renderList(filter=""){
+  const f = filter.trim().toLowerCase();
+  lineListEl.innerHTML = "";
+  LINES.filter(l=>{
+    if(!f) return true;
+    return l.code.includes(f) || l.from.toLowerCase().includes(f) || l.to.toLowerCase().includes(f);
+  }).forEach(line=>{
+    const nd = nextDeparture(line);
+    const card = document.createElement('div');
+    card.className = 'line-card';
+    card.innerHTML = `
+      <div class="line-badge">${line.code}</div>
+      <div class="line-info">
+        <div class="line-route">${line.from} — ${line.to}</div>
+        <div class="line-meta">${line.stops.length} stajališta · ${line.stops[line.stops.length-1].km} km${line.isDemo ? ' · <span class="demo-tag">PRIMJER</span>' : ''}</div>
+      </div>
+      <div class="line-next">
+        <span class="lbl">Sljedeći</span>
+        <span class="val ${nd?'':'off'}">${nd ? fmtRelative(nd) : "—"}</span>
+      </div>
+    `;
+    card.addEventListener('click', ()=>openDetail(line));
+    lineListEl.appendChild(card);
+  });
+  if(!lineListEl.children.length){
+    lineListEl.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2M9 9h.01M15 9h.01"/></svg>
+      <p>Nema linija koje odgovaraju pretrazi.</p></div>`;
+  }
+}
+function fmtRelative(nd){
+  if(nd.offset === 0) return nd.time;
+  if(nd.offset === 1) return "sutra " + nd.time;
+  return DAY_LABELS[(nowParts().isoDay - 1 + nd.offset) % 7] + " " + nd.time;
+}
+searchInput.addEventListener('input', e=>{ if(dbReady) renderList(e.target.value); });
+
+async function initApp(){
+  lineListEl.innerHTML = `<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10" stroke-dasharray="50 20"/></svg>
+    <p>Učitavanje voznog reda iz baze…</p></div>`;
+  await loadLinesFromDB();
+  renderList();
+  const footerNote = document.getElementById('footerNote');
+  if(footerNote){
+    const sourceLabel = dbSource === 'supabase' ? 'Supabase baza (živi podaci)' : 'privremena lokalna baza — Supabase još nije povezan';
+    footerNote.innerHTML += `<br><span style="opacity:.7;">Izvor podataka: ${sourceLabel}</span>`;
+  }
+}
+initApp();
+
+/* ============================================================
+   DETAIL VIEW
+   ============================================================ */
+const listView = document.getElementById('list-view');
+const detailView = document.getElementById('detail-view');
+document.getElementById('backBtn').addEventListener('click', ()=>{
+  detailView.style.display = 'none';
+  listView.style.display = 'block';
+});
+
+let currentLine = null;
+let currentDir = 'polazak';
+let currentRun = null; // null = show departure list; a run object = show its stop schedule
+let selectedDate = new Date(); // date being previewed; defaults to today each time a line opens
+
+function allRunsOf(line){
+  return line.schedules ? line.schedules.flatMap(s=>s.runs) : line.runs;
+}
+
+const dateInputEl = document.getElementById('dateInput');
+const dateWeekdayEl = document.getElementById('dateWeekday');
+
+function refreshDateUI(){
+  dateInputEl.value = toISODate(selectedDate);
+  const isToday = isSameCalendarDay(selectedDate, new Date());
+  dateWeekdayEl.textContent = isToday ? 'Danas' : DAY_LABELS[isoDayOf(selectedDate)-1];
+  dateWeekdayEl.classList.toggle('is-today', isToday);
+}
+dateInputEl.addEventListener('change', ()=>{
+  if(!dateInputEl.value) return;
+  const [y,m,d] = dateInputEl.value.split('-').map(Number);
+  selectedDate = new Date(y, m-1, d);
+  currentRun = null;
+  refreshDateUI();
+  renderDetail();
+});
+
+function openDetail(line){
+  currentLine = line;
+  currentDir = allRunsOf(line).some(r=>r.dir==='polazak') ? 'polazak' : 'povratak';
+  currentRun = null;
+  selectedDate = new Date();
+  document.getElementById('detailBadge').textContent = line.code;
+  document.getElementById('detailTitle').textContent = `${line.from} — ${line.to}`;
+  document.getElementById('detailSub').textContent = `Linija ${line.code} · SiMBus`;
+
+  // tabs
+  const dirs = [...new Set(allRunsOf(line).map(r=>r.dir))];
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = "";
+  dirs.forEach(d=>{
+    const t = document.createElement('div');
+    t.className = 'tab' + (d===currentDir ? ' active':'');
+    t.textContent = d === 'polazak' ? `Polazak · ${line.from} → ${line.to}` : `Povratak · ${line.to} → ${line.from}`;
+    t.addEventListener('click', ()=>{ currentDir = d; currentRun = null; renderDetail(); });
+    tabsEl.appendChild(t);
+  });
+
+  refreshDateUI();
+  listView.style.display = 'none';
+  detailView.style.display = 'block';
+  renderDetail();
+  startFlapClock();
+}
+
+function renderDetail(){
+  const line = currentLine;
+  // refresh tab active states
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    const dirs = [...new Set(allRunsOf(line).map(r=>r.dir))];
+    t.classList.toggle('active', dirs[i]===currentDir);
+  });
+
+  if(currentRun === null){
+    renderRunList();
+  } else {
+    renderRunDetail();
+  }
+
+  // live card description (independent of which sub-view is open — always the real "now")
+  const nd = nextDeparture(line);
+  const liveDesc = document.getElementById('liveDesc');
+  if(nd){
+    const dirLabel = nd.dir === 'polazak' ? `${line.from} → ${line.to}` : `${line.to} → ${line.from}`;
+    liveDesc.textContent = `${dirLabel}${nd.offset>0? " · " + fmtRelative(nd).split(" ")[0] : ""}`;
+  } else {
+    liveDesc.textContent = "Nema više polazaka";
+  }
+  renderFlap(nd ? nd.time : "--:--");
+}
+
+/* ---------- Sub-view 1: list of departures for the active direction, on selectedDate ---------- */
+function renderRunList(){
+  const line = currentLine;
+  const isoDay = isoDayOf(selectedDate);
+  const panelWrap = document.getElementById('routePanels');
+  const schedule = getScheduleForDate(line, selectedDate);
+  const isToday = isSameCalendarDay(selectedDate, new Date());
+
+  if(!schedule){
+    panelWrap.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <p>Za odabrani datum nije objavljen vozni red za ovu liniju.</p></div>`;
+    return;
+  }
+
+  const runsForDir = schedule.runs.filter(r=>r.dir===currentDir);
+  const originName = currentDir === 'polazak' ? line.from : line.to;
+  const destName = currentDir === 'polazak' ? line.to : line.from;
+
+  const cards = runsForDir.map(run=>{
+    const originTime = currentDir === 'polazak' ? run.times[0] : run.times[run.times.length-1];
+    const destTime = currentDir === 'polazak' ? run.times[run.times.length-1] : run.times[0];
+    const runsOnSelectedDate = run.days.includes(String(isoDay));
+    const chipLabel = isToday ? 'Vozi danas' : 'Vozi taj dan';
+    return `
+      <div class="run-card ${runsOnSelectedDate?'today':''}" data-run="${run.id}">
+        <div class="run-time-badge">${originTime}</div>
+        <div class="run-info">
+          <div class="run-route">${originName} → ${destName} <span style="color:var(--muted);font-weight:500;">· dolazak ${destTime}</span></div>
+          <div class="run-meta">
+            <span class="run-days-label">${dayPatternLabel(run.days)}${schedule.season ? ` · vrijedi ${schedule.season.label}` : ''}</span>
+            ${runsOnSelectedDate ? `<span class="run-today-chip">${chipLabel}</span>` : ''}
+          </div>
+        </div>
+        <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>`;
+  }).join("");
+
+  panelWrap.innerHTML = `
+    ${line.isDemo ? '<div class="demo-banner">⚠ Ovo su izmišljeni podaci samo za prikaz izgleda aplikacije — nisu stvarni vozni red linije ' + line.code + '.</div>' : ''}
+    <div class="run-list-head">Odaberi polazak za prikaz stanica i vremena${schedule.season ? ` · vrijedi ${schedule.season.label}` : ''}</div>
+    <div class="run-list">${cards}</div>
+  `;
+
+  panelWrap.querySelectorAll('.run-card').forEach(card=>{
+    card.addEventListener('click', ()=>{
+      const runId = card.getAttribute('data-run');
+      currentRun = runsForDir.find(r=>r.id===runId);
+      renderDetail();
+    });
+  });
+}
+
+/* ---------- Sub-view 2: stop-by-stop schedule for one selected departure ---------- */
+function renderRunDetail(){
+  const line = currentLine;
+  const run = currentRun;
+  const isoDay = isoDayOf(selectedDate);
+  const isViewingToday = isSameCalendarDay(selectedDate, new Date());
+  const {minutes} = nowParts(); // real current time; only meaningful when isViewingToday
+  const panelWrap = document.getElementById('routePanels');
+  const stops = currentDir === 'polazak' ? line.stops : [...line.stops].reverse();
+  const orderedTimes = currentDir === 'polazak' ? run.times : [...run.times].reverse();
+  const schedule = getScheduleForDate(line, selectedDate);
+  const runsOnSelectedDate = run.days.includes(String(isoDay));
+  const liveTrackingActive = runsOnSelectedDate && isViewingToday;
+
+  // next stop not yet reached — only meaningful while actually tracking today's run
+  let highlightStopIdx = -1;
+  if(liveTrackingActive){
+    for(let si=0; si<orderedTimes.length; si++){
+      const m = timeToMinutes(orderedTimes[si]);
+      if(m !== null && m > minutes){ highlightStopIdx = si; break; }
+    }
+  }
+
+  let rowsHtml = "";
+  stops.forEach((stop, si)=>{
+    const isEndpoint = si===0 || si===stops.length-1;
+    const t = orderedTimes[si];
+    const dash = (t === "-" || !t);
+    const isPast = !dash && liveTrackingActive && timeToMinutes(t) <= minutes;
+    const isHighlight = si===highlightStopIdx;
+    rowsHtml += `
+      <div class="stop-row">
+        <div class="stop-name-col">
+          <div class="stop-name ${isEndpoint?'endpoint':''}">${stop.name}</div>
+          <div class="stop-km">${stop.km} km</div>
+        </div>
+        <div class="stop-times">
+          <div class="time-chip ${dash?'dash':''} ${isHighlight?'highlight':''} ${isPast?'past':''}">${dash?'–':t}</div>
+        </div>
+      </div>`;
+  });
+
+  let railDots = "";
+  stops.forEach((s,si)=>{
+    const isNext = si===highlightStopIdx;
+    railDots += `<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot ${isNext?'next':''}"></div></div>`;
+  });
+
+  const originName = currentDir === 'polazak' ? line.from : line.to;
+  const destName = currentDir === 'polazak' ? line.to : line.from;
+
+  let statusLine = dayPatternLabel(run.days);
+  if(schedule && schedule.season) statusLine += ` · vrijedi ${schedule.season.label}`;
+  if(runsOnSelectedDate) statusLine += isViewingToday ? ' · vozi danas' : ` · vozi na ${selectedDate.getDate()}.${selectedDate.getMonth()+1}.`;
+  else statusLine += ' · ne vozi na odabrani datum';
+
+  panelWrap.innerHTML = `
+    <div class="run-detail-head">
+      <div class="run-back" id="runBack">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Svi polasci
+      </div>
+    </div>
+    <div class="route-panel" style="margin-top:8px;">
+      <div class="route-panel-head">
+        <div>
+          <div class="run-summary-title">${orderedTimes[0]} · ${originName} → ${destName}</div>
+          <span>${statusLine}</span>
+        </div>
+      </div>
+      <div class="route-body">
+        <div class="rail-col" id="railCol">
+          <div class="rail-line"></div>
+          ${railDots}
+        </div>
+        <div style="flex:1;">${rowsHtml}</div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('runBack').addEventListener('click', ()=>{
+    currentRun = null;
+    renderDetail();
+  });
+
+  updateBusMarker();
+}
+
+/* split-flap display */
+function renderFlap(timeStr){
+  const flapRow = document.getElementById('flapRow');
+  flapRow.innerHTML = "";
+  const chars = timeStr.split("");
+  chars.forEach(ch=>{
+    const el = document.createElement('div');
+    el.className = 'flap' + (ch===':' ? ' colon' : '');
+    el.textContent = ch;
+    flapRow.appendChild(el);
+  });
+}
+const ROW_HEIGHT = 52;
+const RAIL_TOP_OFFSET = 6; // matches .rail-col padding-top
+
+/* Returns the current fractional position of the bus along the currently
+   selected departure (currentRun), if that specific run is presently
+   between its first and last stop time today — using seconds precision
+   so the marker glides smoothly rather than jumping minute to minute. */
+function getBusPosition(line, dir, run){
+  const now = new Date();
+  const isoDay = now.getDay() === 0 ? 7 : now.getDay();
+  const nowSec = now.getHours()*3600 + now.getMinutes()*60 + now.getSeconds();
+
+  if(!isSameCalendarDay(selectedDate, now)) return null; // only track live while viewing today
+  if(!run.days.includes(String(isoDay))) return null;
+  const orderedTimes = dir === 'polazak' ? run.times : [...run.times].reverse();
+  const secs = orderedTimes.map(t=>{
+    if(t === '-' || !t) return null;
+    const [h,m] = t.split(':').map(Number);
+    return h*3600 + m*60;
+  });
+  for(let i=0; i<secs.length-1; i++){
+    if(secs[i] === null) continue;
+    let j = i+1;
+    while(j < secs.length && secs[j] === null) j++;
+    if(j >= secs.length) continue;
+    if(nowSec >= secs[i] && nowSec <= secs[j]){
+      const frac = secs[j] === secs[i] ? 0 : (nowSec - secs[i]) / (secs[j] - secs[i]);
+      return { rowFrom:i, rowTo:j, frac };
+    }
+  }
+  return null;
+}
+
+function updateBusMarker(){
+  if(!currentLine || !currentRun || detailView.style.display === 'none') return;
+  const railCol = document.getElementById('railCol');
+  if(!railCol) return;
+
+  const pos = getBusPosition(currentLine, currentDir, currentRun);
+  let marker = document.getElementById('busMarker');
+
+  if(!pos){
+    if(marker) marker.remove();
+    return;
+  }
+  const topPx = RAIL_TOP_OFFSET + (pos.rowFrom*ROW_HEIGHT + ROW_HEIGHT/2) + pos.frac*((pos.rowTo-pos.rowFrom)*ROW_HEIGHT);
+
+  if(!marker){
+    marker = document.createElement('div');
+    marker.id = 'busMarker';
+    marker.className = 'bus-marker';
+    marker.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1A1.5 1.5 0 119 15.5 1.5 1.5 0 017.5 17zm9 0a1.5 1.5 0 111.5-1.5 1.5 1.5 0 01-1.5 1.5zM18 11H6V6h12v5z"/></svg>';
+    railCol.appendChild(marker);
+    marker.style.top = topPx + 'px'; // set once without transition to avoid a slide-in from top:6px on first paint
+    requestAnimationFrame(()=>{ marker.style.transition = 'top 1s linear'; });
+  } else {
+    marker.style.top = topPx + 'px';
+  }
+}
+
+function startFlapClock(){
+  if(flapInterval) clearInterval(flapInterval);
+  flapInterval = setInterval(()=>{
+    if(!currentLine || detailView.style.display==='none') return;
+    renderDetail();
+  }, 15000); // re-evaluate schedule against system time every 15s
+}
+
+/* ============================================================
+   GLOBAL LIVE CLOCK — reads system time every second, drives
+   both the visible clock readout and periodic view refreshes
+   ============================================================ */
+function pad(n){ return String(n).padStart(2,'0'); }
+function tickClock(){
+  const d = new Date();
+  const label = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const listSpan = document.querySelector('#listClock span:last-child');
+  const detailSpan = document.querySelector('#detailClock span:last-child');
+  if(listSpan) listSpan.textContent = label;
+  if(detailSpan) detailSpan.textContent = label;
+}
+tickClock();
+setInterval(()=>{ tickClock(); updateBusMarker(); }, 1000);
+
+// keep the line list's "sljedeći polazak" values current even while idle on that screen
+setInterval(()=>{
+  if(listView.style.display !== 'none'){
+    renderList(searchInput.value);
+  }
+}, 15000);
+</script>
+</body>
+</html>
