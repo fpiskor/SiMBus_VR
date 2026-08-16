@@ -652,6 +652,8 @@
   }
   .empty-state svg{width:40px;height:40px;stroke:#B9C4CF;margin-bottom:10px;}
   .empty-state p{font-size:13.5px;margin:0;}
+  .empty-state.error-state svg{stroke:var(--red);}
+  .empty-state.error-state p{color:var(--red);font-weight:700;font-size:14.5px;}
 
   .footer-note{
     text-align:center;
@@ -742,95 +744,24 @@ function dayPatternLabel(days){
   return days.split("").map(d=>DAY_LABELS[parseInt(d,10)-1]).join(", ");
 }
 
-const LINE_205_RUNS = [
-  {id:"01", dir:"polazak", days:"12345", times:["14:15","14:17","14:20","14:24","14:29","14:32"]},
-  {id:"02", dir:"polazak", days:"12345", times:["12:00","12:02","12:06","-","-","-"]},
-  {id:"03", dir:"povratak", days:"12345", times:["07:53","07:50","07:47","07:43","07:38","07:35"]},
-  {id:"04", dir:"povratak", days:"12345", times:["12:12","12:10","12:06","-","-","-"]},
-];
-
-const DEFAULT_LINES = [
-  {
-    code: "205",
-    from: "TOPUSKO",
-    to: "GLINA",
-    stops: [
-      {name:"TOPUSKO", km:0},
-      {name:"TOPUSKO ŽELJ.ST", km:3},
-      {name:"BATINOVA KOSA", km:5},
-      {name:"ŠATORNJA", km:8},
-      {name:"GORNJI VIDUŠEVAC", km:13},
-      {name:"GLINA", km:16},
-    ],
-    // A line can have several seasonal timetables; SiMBus picks the one
-    // whose period covers the date being viewed. Line 205 runs the same
-    // times all year, so both periods point at the same run list — but
-    // other lines can give each period its own `runs` array.
-    schedules: [
-      { season:{from:"09-01", to:"06-30", label:"1.9. – 30.6."}, runs: LINE_205_RUNS },
-      { season:{from:"07-01", to:"08-30", label:"1.7. – 30.8."}, runs: LINE_205_RUNS },
-    ]
-  },
-  {
-    code: "212",
-    from: "TOPUSKO",
-    to: "SISAK",
-    isDemo: true, // not a real published timetable — shown only to demonstrate the multi-line UI
-    stops: [
-      {name:"TOPUSKO", km:0},
-      {name:"GVOZD", km:9},
-      {name:"MALA SOLINA", km:19},
-      {name:"SISAK", km:31},
-    ],
-    runs: [
-      {id:"01", dir:"polazak", days:"12345", times:["05:40","05:58","06:12","06:35"]},
-      {id:"02", dir:"polazak", days:"1234567", times:["15:10","15:28","15:42","16:05"]},
-      {id:"03", dir:"povratak", days:"12345", times:["13:20","13:00","12:47","12:25"]},
-      {id:"04", dir:"povratak", days:"1234567", times:["19:45","19:25","19:12","18:50"]},
-    ]
-  },
-  {
-    code: "230",
-    from: "GLINA",
-    to: "PETRINJA",
-    isDemo: true,
-    stops: [
-      {name:"GLINA", km:0},
-      {name:"MAJA", km:8},
-      {name:"HRASTOVICA", km:17},
-      {name:"PETRINJA", km:24},
-    ],
-    runs: [
-      {id:"01", dir:"polazak", days:"12345", times:["06:15","06:32","06:50","07:05"]},
-      {id:"03", dir:"povratak", days:"12345", times:["14:40","14:22","14:05","13:50"]},
-    ]
-  }
-];
-
 /* ============================================================
-   "BAZA" — data layer with two possible backends:
+   "BAZA" — Supabase is the single source of truth. Fill in the two
+   constants below with your project's URL + public anon key (from
+   Project Settings → API) after running supabase-setup.sql. Reads
+   happen with the anon key; edits are made in Supabase's own Table
+   Editor by whoever owns the project — never exposed to visitors.
 
-   1) SUPABASE (real, works anywhere once this file is hosted on
-      its own domain — outside Claude.ai too). Fill in the two
-      constants below with your project's URL + public anon key
-      once you've created a Supabase project and run the setup
-      SQL (see supabase-setup.sql). Reads happen with the anon
-      key; edits are made in Supabase's own Table Editor by
-      whoever owns the project (not exposed to site visitors).
-
-   2) window.storage fallback — Anthropic's storage, only works
-      while this file is opened inside a Claude.ai conversation/
-      artifact. Used automatically whenever Supabase isn't
-      configured yet, or briefly unreachable, so the app keeps
-      working either way.
+   There is intentionally no local fallback: if Supabase can't be
+   reached, the app shows a clear error instead of quietly serving
+   stale or fabricated data — appropriate for a real transit app
+   people rely on to actually catch their bus.
    ============================================================ */
 const SUPABASE_URL = 'https://vdawvqirjwlzvjzijhyd.supabase.co';       // e.g. 'https://xxxxxxxx.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_2vQX9TolrGkdl2hlOHSG4g_NAKuHKUb';  // the public "anon" key from Project Settings → API
 
-const DB_KEY = 'simbus-lines';
 let LINES = [];
 let dbReady = false;
-let dbSource = null; // 'supabase' | 'local' — shown in the UI so it's clear which backend is live
+let dbSource = null; // 'supabase' once a load has actually succeeded
 
 function rowToLine(row){
   return {
@@ -844,61 +775,23 @@ function rowToLine(row){
   };
 }
 
-async function tryLoadFromSupabase(){
-  if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
-  if(!window.supabase || !window.supabase.createClient) return false;
+async function loadLinesFromDB(){
+  if(!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase || !window.supabase.createClient){
+    dbReady = true;
+    return false;
+  }
   try{
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await client.from('lines').select('*').order('code');
     if(error) throw error;
-    if(!data || !data.length) return false;
+    if(!data || !data.length){ dbReady = true; return false; }
     LINES = data.map(rowToLine);
     dbSource = 'supabase';
-    return true;
-  } catch(e){
-    console.warn('Supabase nedostupan, prelazim na lokalnu bazu.', e);
-    return false;
-  }
-}
-
-async function loadLinesFromDB(){
-  if(await tryLoadFromSupabase()){
     dbReady = true;
-    return;
-  }
-
-  let storedValue = null;
-  try{
-    const result = await window.storage.get(DB_KEY, true);
-    storedValue = result ? result.value : null;
-  } catch(e){
-    storedValue = null; // key not yet seeded, or storage momentarily unavailable
-  }
-
-  if(storedValue){
-    try{ LINES = JSON.parse(storedValue); }
-    catch(e){ LINES = DEFAULT_LINES; }
-  } else {
-    LINES = DEFAULT_LINES;
-    try{
-      await window.storage.set(DB_KEY, JSON.stringify(DEFAULT_LINES), true);
-    } catch(e){
-      console.warn('Nije uspjelo prvo spremanje u bazu — nastavljam s lokalnim podacima za ovu sesiju.', e);
-    }
-  }
-  dbSource = 'local';
-  dbReady = true;
-}
-
-async function saveLinesToDB(){
-  // Only relevant for the window.storage fallback — Supabase edits happen
-  // in its own dashboard, not by writing back the whole LINES array.
-  if(dbSource !== 'local') return true;
-  try{
-    await window.storage.set(DB_KEY, JSON.stringify(LINES), true);
     return true;
   } catch(e){
-    console.error('Spremanje u bazu nije uspjelo.', e);
+    console.error('Dohvaćanje iz baze nije uspjelo.', e);
+    dbReady = true;
     return false;
   }
 }
@@ -1030,12 +923,20 @@ async function initApp(){
   lineListEl.innerHTML = `<div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10" stroke-dasharray="50 20"/></svg>
     <p>Učitavanje voznog reda iz baze…</p></div>`;
-  await loadLinesFromDB();
-  renderList();
+  const ok = await loadLinesFromDB();
   const footerNote = document.getElementById('footerNote');
+
+  if(!ok){
+    lineListEl.innerHTML = `<div class="empty-state error-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12" y2="16.01"/></svg>
+      <p>Greška pri dohvaćanju podataka !!!</p></div>`;
+    if(footerNote) footerNote.style.display = 'none';
+    return;
+  }
+
+  renderList();
   if(footerNote){
-    const sourceLabel = dbSource === 'supabase' ? 'Supabase baza (živi podaci)' : 'privremena lokalna baza — Supabase još nije povezan';
-    footerNote.innerHTML += `<br><span style="opacity:.7;">Izvor podataka: ${sourceLabel}</span>`;
+    footerNote.innerHTML += `<br><span style="opacity:.7;">Izvor podataka: Supabase baza (živi podaci)</span>`;
   }
 }
 initApp();
