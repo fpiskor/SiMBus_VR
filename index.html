@@ -648,6 +648,17 @@
     border-radius:10px;
     padding:10px 13px;
   }
+  .no-service-banner{
+    margin:12px 16px 0;
+    background:#FDF3E3;
+    border:1px solid #F0DDB2;
+    color:#7A5C10;
+    font-size:12.5px;
+    font-weight:600;
+    line-height:1.5;
+    border-radius:10px;
+    padding:10px 13px;
+  }
   .empty-state{
     padding:60px 30px;
     text-align:center;
@@ -851,21 +862,34 @@ function getScheduleForDate(line, date){
   return { season: line.season || null, runs: line.runs };
 }
 
+/* A single run can also carry its own `season`, overriding the schedule's
+   season — needed for timetables where only SOME departures are seasonal
+   (e.g. one extra summer-only run inside an otherwise year-round table). */
+function effectiveRunSeason(schedule, run){
+  return run.season || (schedule && schedule.season) || null;
+}
+
+/* Whether a specific run actually operates on `date`: right weekday AND
+   within its (possibly run-specific) validity period. */
+function runOperatesOn(schedule, run, date){
+  const isoDay = isoDayOf(date);
+  return run.days.includes(String(isoDay)) && isWithinSeason(effectiveRunSeason(schedule, run), date);
+}
+
 /* find the next upcoming departure across all runs of a line, considering
    only the line's ORIGIN stop time for each run (col index 0) */
 function nextDeparture(line){
-  const {isoDay, minutes} = nowParts();
+  const {minutes} = nowParts();
   const today = new Date();
   let best = null;
   // check today and following days up to 8 ahead
   for(let offset=0; offset<8; offset++){
-    const checkDay = ((isoDay - 1 + offset) % 7) + 1;
     const checkDate = new Date(today);
     checkDate.setDate(today.getDate() + offset);
     const schedule = getScheduleForDate(line, checkDate);
     if(!schedule) continue; // no published timetable for this date
     schedule.runs.forEach(run=>{
-      if(!run.days.includes(String(checkDay))) return;
+      if(!runOperatesOn(schedule, run, checkDate)) return;
       const originTime = run.dir === "polazak" ? run.times[0] : run.times[run.times.length-1];
       const mins = timeToMinutes(originTime);
       if(mins === null) return;
@@ -1038,10 +1062,11 @@ function renderDetail(){
 /* ---------- Sub-view 1: list of departures for the active direction, on selectedDate ---------- */
 function renderRunList(){
   const line = currentLine;
-  const isoDay = isoDayOf(selectedDate);
   const panelWrap = document.getElementById('routePanels');
   const schedule = getScheduleForDate(line, selectedDate);
   const isToday = isSameCalendarDay(selectedDate, new Date());
+  const dateLabel = `${selectedDate.getDate()}.${selectedDate.getMonth()+1}.${selectedDate.getFullYear()}.`;
+  const weekdayLabel = DAY_LABELS[isoDayOf(selectedDate)-1];
 
   if(!schedule){
     panelWrap.innerHTML = `<div class="empty-state">
@@ -1051,22 +1076,38 @@ function renderRunList(){
   }
 
   const runsForDir = schedule.runs.filter(r=>r.dir===currentDir);
-  const originName = currentDir === 'polazak' ? line.from : line.to;
-  const destName = currentDir === 'polazak' ? line.to : line.from;
+  const anyRunsToday = runsForDir.some(run => runOperatesOn(schedule, run, selectedDate));
 
   const cards = runsForDir.map(run=>{
-    const originTime = currentDir === 'polazak' ? run.times[0] : run.times[run.times.length-1];
-    const destTime = currentDir === 'polazak' ? run.times[run.times.length-1] : run.times[0];
-    const runsOnSelectedDate = run.days.includes(String(isoDay));
+    // Walk the run's times in travel order to find where it actually starts/ends —
+    // a run doesn't have to cover the line's full nominal route (e.g. a summer-only
+    // departure that only serves part of the line), so we read the real endpoints
+    // off the data itself rather than assuming line.from/line.to.
+    const orderedTimes = currentDir === 'polazak' ? run.times : [...run.times].reverse();
+    const orderedStops = currentDir === 'polazak' ? line.stops : [...line.stops].reverse();
+    const firstIdx = orderedTimes.findIndex(t => t && t !== '-');
+    let lastIdx = -1;
+    for(let i=orderedTimes.length-1; i>=0; i--){ if(orderedTimes[i] && orderedTimes[i] !== '-'){ lastIdx = i; break; } }
+    const originTime = firstIdx >= 0 ? orderedTimes[firstIdx] : '-';
+    const destTime = lastIdx >= 0 ? orderedTimes[lastIdx] : '-';
+    const originName = firstIdx >= 0 ? orderedStops[firstIdx].name : (currentDir === 'polazak' ? line.from : line.to);
+    const destName = lastIdx >= 0 ? orderedStops[lastIdx].name : (currentDir === 'polazak' ? line.to : line.from);
+
+    const dayMatches = run.days.includes(String(isoDayOf(selectedDate)));
+    const runSeason = effectiveRunSeason(schedule, run);
+    const inSeason = isWithinSeason(runSeason, selectedDate);
+    const operatesToday = dayMatches && inSeason;
     const chipLabel = isToday ? 'Vozi danas' : 'Vozi taj dan';
+    const offSeasonChip = dayMatches && !inSeason;
     return `
-      <div class="run-card ${runsOnSelectedDate?'today':''}" data-run="${run.id}">
+      <div class="run-card ${operatesToday?'today':''}" data-run="${run.id}">
         <div class="run-time-badge">${originTime}</div>
         <div class="run-info">
           <div class="run-route">${originName} → ${destName} <span style="color:var(--muted);font-weight:500;">· dolazak ${destTime}</span></div>
           <div class="run-meta">
-            <span class="run-days-label">${dayPatternLabel(run.days)}${schedule.season ? ` · vrijedi ${schedule.season.label}` : ''}</span>
-            ${runsOnSelectedDate ? `<span class="run-today-chip">${chipLabel}</span>` : ''}
+            <span class="run-days-label">${dayPatternLabel(run.days)}${runSeason ? ` · vrijedi ${runSeason.label}` : ''}</span>
+            ${operatesToday ? `<span class="run-today-chip">${chipLabel}</span>` : ''}
+            ${offSeasonChip ? `<span class="run-today-chip off">Izvan razdoblja</span>` : ''}
           </div>
         </div>
         <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -1075,6 +1116,7 @@ function renderRunList(){
 
   panelWrap.innerHTML = `
     ${line.isDemo ? '<div class="demo-banner">⚠ Ovo su izmišljeni podaci samo za prikaz izgleda aplikacije — nisu stvarni vozni red linije ' + line.code + '.</div>' : ''}
+    ${!anyRunsToday ? `<div class="no-service-banner">🚫 Linija ${line.code} ne prometuje ${isToday ? 'danas' : `(${weekdayLabel}, ${dateLabel})`} u ovom smjeru.</div>` : ''}
     <div class="run-list-head">Odaberi polazak za prikaz stanica i vremena${schedule.season ? ` · vrijedi ${schedule.season.label}` : ''}</div>
     <div class="run-list">${cards}</div>
   `;
@@ -1092,14 +1134,13 @@ function renderRunList(){
 function renderRunDetail(){
   const line = currentLine;
   const run = currentRun;
-  const isoDay = isoDayOf(selectedDate);
   const isViewingToday = isSameCalendarDay(selectedDate, new Date());
   const {minutes} = nowParts(); // real current time; only meaningful when isViewingToday
   const panelWrap = document.getElementById('routePanels');
   const stops = currentDir === 'polazak' ? line.stops : [...line.stops].reverse();
   const orderedTimes = currentDir === 'polazak' ? run.times : [...run.times].reverse();
   const schedule = getScheduleForDate(line, selectedDate);
-  const runsOnSelectedDate = run.days.includes(String(isoDay));
+  const runsOnSelectedDate = runOperatesOn(schedule, run, selectedDate);
   const liveTrackingActive = runsOnSelectedDate && isViewingToday;
 
   // next stop not yet reached — only meaningful while actually tracking today's run
@@ -1136,11 +1177,16 @@ function renderRunDetail(){
     railDots += `<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot ${isNext?'next':''}"></div></div>`;
   });
 
-  const originName = currentDir === 'polazak' ? line.from : line.to;
-  const destName = currentDir === 'polazak' ? line.to : line.from;
+  const firstIdx = orderedTimes.findIndex(t => t && t !== '-');
+  let lastIdxD = -1;
+  for(let i=orderedTimes.length-1; i>=0; i--){ if(orderedTimes[i] && orderedTimes[i] !== '-'){ lastIdxD = i; break; } }
+  const originName = firstIdx >= 0 ? stops[firstIdx].name : (currentDir === 'polazak' ? line.from : line.to);
+  const destName = lastIdxD >= 0 ? stops[lastIdxD].name : (currentDir === 'polazak' ? line.to : line.from);
+  const originTime = firstIdx >= 0 ? orderedTimes[firstIdx] : '-';
+  const runSeason = effectiveRunSeason(schedule, run);
 
   let statusLine = dayPatternLabel(run.days);
-  if(schedule && schedule.season) statusLine += ` · vrijedi ${schedule.season.label}`;
+  if(runSeason) statusLine += ` · vrijedi ${runSeason.label}`;
   if(runsOnSelectedDate) statusLine += isViewingToday ? ' · vozi danas' : ` · vozi na ${selectedDate.getDate()}.${selectedDate.getMonth()+1}.`;
   else statusLine += ' · ne vozi na odabrani datum';
 
@@ -1154,7 +1200,7 @@ function renderRunDetail(){
     <div class="route-panel" style="margin-top:8px;">
       <div class="route-panel-head">
         <div>
-          <div class="run-summary-title">${orderedTimes[0]} · ${originName} → ${destName}</div>
+          <div class="run-summary-title">${originTime} · ${originName} → ${destName}</div>
           <span>${statusLine}</span>
         </div>
       </div>
@@ -1197,11 +1243,10 @@ const RAIL_TOP_OFFSET = 6; // matches .rail-col padding-top
    so the marker glides smoothly rather than jumping minute to minute. */
 function getBusPosition(line, dir, run){
   const now = new Date();
-  const isoDay = now.getDay() === 0 ? 7 : now.getDay();
   const nowSec = now.getHours()*3600 + now.getMinutes()*60 + now.getSeconds();
 
   if(!isSameCalendarDay(selectedDate, now)) return null; // only track live while viewing today
-  if(!run.days.includes(String(isoDay))) return null;
+  if(!runOperatesOn(getScheduleForDate(line, now), run, now)) return null;
   const orderedTimes = dir === 'polazak' ? run.times : [...run.times].reverse();
   const secs = orderedTimes.map(t=>{
     if(t === '-' || !t) return null;
