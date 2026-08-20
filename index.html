@@ -779,13 +779,13 @@ function fmtRelative(next){
   return DAY_LABELS[(isoDay(new Date())-1+next.offset)%7] + ' ' + next.time;
 }
 function directionLabel(dir){
-  return dir==='polazak' ? `${currentLine.from_name} → ${currentLine.to_name}` : `${currentLine.to_name} → ${currentLine.from_name}`;
+  const a=currentLine.from_name||currentLine.title||'—', b=currentLine.to_name||'—'; return dir==='polazak' ? `${a} → ${b}` : `${b} → ${a}`;
 }
 
 async function initDB(){
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ throw new Error('Nisu upisani Supabase URL i anon ključ.'); }
   db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const {data,error}=await db.from('lines').select('id,code,from_name,to_name,is_circular,is_demo').order('code');
+  const {data,error}=await db.from('lines').select('id,code,title,from_name,to_name,is_circular').order('code');
   if(error) throw error;
   LINES=data||[];
 }
@@ -829,14 +829,14 @@ async function renderList(filter=''){
     const nexts=await loadNextDepartures();
     const byId=new Map(nexts.map(x=>[x.line_id,x]));
     const f=filter.trim().toLowerCase();
-    const rows=LINES.filter(l=>!f||l.code.toLowerCase().includes(f)||l.from_name.toLowerCase().includes(f)||l.to_name.toLowerCase().includes(f));
+    const rows=LINES.filter(l=>{ const hay=[l.code,l.title,l.from_name,l.to_name].filter(Boolean).join(' ').toLowerCase(); return !f||hay.includes(f); });
     lineListEl.innerHTML=rows.map(line=>{
       const n=byId.get(line.id);
       return `<div class="line-card" data-line="${line.id}">
         <div class="line-badge">${line.code}</div>
         <div class="line-info">
-          <div class="line-route">${line.from_name} — ${line.to_name}</div>
-          <div class="line-meta">${n?.stop_count||0} stajališta${line.is_circular?' · kružna':''}${line.is_demo?' · <span class="demo-tag">PRIMJER</span>':''}</div>
+          <div class="line-route">${line.from_name||line.title||'—'} — ${line.to_name||''}</div>
+          <div class="line-meta">${n?.stop_count||0} stajališta${line.is_circular?' · kružna':''}</div>
         </div>
         <div class="line-next"><span class="lbl">Sljedeći</span><span class="val ${n?.next_time?'':'off'}">${n?.next_time||'—'}</span></div>
       </div>`;
@@ -844,7 +844,7 @@ async function renderList(filter=''){
     lineListEl.querySelectorAll('.line-card').forEach(card=>card.addEventListener('click',()=>openDetail(Number(card.dataset.line))));
   }catch(e){
     console.error(e);
-    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p></div>`;
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka.</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
   }
 }
 searchInput.addEventListener('input',()=>renderList(searchInput.value));
@@ -859,7 +859,7 @@ async function openDetail(lineId){
   listView.style.display='none';
   detailView.style.display='block';
   document.getElementById('detailBadge').textContent=currentLine.code;
-  document.getElementById('detailTitle').textContent=`${currentLine.from_name} — ${currentLine.to_name}`;
+  document.getElementById('detailTitle').textContent=`${currentLine.from_name||currentLine.title||'—'} — ${currentLine.to_name||''}`;
   document.getElementById('detailSub').textContent=currentLine.is_circular?'Kružna linija':'Vozni red';
   await renderDetail();
   if(flapInterval) clearInterval(flapInterval);
@@ -904,7 +904,7 @@ function renderRunList(){
       <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     </div>`;
   }).join('');
-  panel.innerHTML=`${currentLine.is_demo?'<div class="demo-banner">⚠ Ovo su izmišljeni podaci samo za prikaz izgleda aplikacije.</div>':''}${!active.length?`<div class="no-service-banner">🚫 Linija ${currentLine.code} ne prometuje ${today?'danas':`na ${dateLabel}`} u ovom smjeru.</div>`:''}<div class="run-list-head">Odaberi polazak za prikaz stanica i vremena</div><div class="run-list">${cards}</div>`;
+  panel.innerHTML=`${!active.length?`<div class="no-service-banner">🚫 Linija ${currentLine.code} ne prometuje ${today?'danas':`na ${dateLabel}`} u ovom smjeru.</div>`:''}<div class="run-list-head">Odaberi polazak za prikaz stanica i vremena</div><div class="run-list">${cards}</div>`;
   panel.querySelectorAll('.run-card').forEach(card=>card.addEventListener('click',()=>{
     currentRun=active.find(x=>String(x.departure_id)===card.dataset.run);
     renderRunDetail();
@@ -962,7 +962,7 @@ setInterval(()=>{if(listView.style.display!=='none') renderList(searchInput.valu
     document.getElementById('footerNote').innerHTML+=' <br><span style="opacity:.7;">Izvor podataka: Supabase baza</span>';
   }catch(e){
     console.error(e);
-    lineListEl.innerHTML='<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p></div>';
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka.</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
   }
 })();
 </script>
