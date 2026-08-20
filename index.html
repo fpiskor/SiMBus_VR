@@ -13,9 +13,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script>
-        alert("Stranica je u izradi, informacije mogu biti netočne !!!");
-</script>
 <style>
   :root{
     --blue-900:#16224B;
@@ -739,590 +736,235 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* ============================================================
-   DATA MODEL
-   days: string of digits 1-7 (1=Pon ... 7=Ned) when the run operates
-   direction times are given in physical stop order (top of source table);
-   we render "povratak" runs in reversed stop order so the listed
-   times read in actual travel chronology.
-   ============================================================ */
-
+/* SiMBus v2
+   JS je namjerno tanak: Supabase odlučuje sezonu, dan i polaske.
+   Baza je jedini izvor istine; ovdje samo dohvaćamo i crtamo podatke.
+*/
 const DAY_LABELS = ["Pon","Uto","Sri","Čet","Pet","Sub","Ned"];
+const SUPABASE_URL = 'https://vdawvqirjwlzvjzijhyd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_2vQX9TolrGkdl2hlOHSG4g_NAKuHKUb';
 
-function dayPatternLabel(days){
-  if(days === "1234567") return "Svaki dan";
-  if(days === "12345") return "Radnim danom (Pon–Pet)";
-  if(days === "6") return "Subotom";
-  if(days === "7") return "Nedjeljom i blagdanom";
-  if(days === "67") return "Vikendom";
-  return days.split("").map(d=>DAY_LABELS[parseInt(d,10)-1]).join(", ");
-}
-
-/* ============================================================
-   "BAZA" — Supabase is the single source of truth. Fill in the two
-   constants below with your project's URL + public anon key (from
-   Project Settings → API) after running supabase-setup.sql. Reads
-   happen with the anon key; edits are made in Supabase's own Table
-   Editor by whoever owns the project — never exposed to visitors.
-
-   There is intentionally no local fallback: if Supabase can't be
-   reached, the app shows a clear error instead of quietly serving
-   stale or fabricated data — appropriate for a real transit app
-   people rely on to actually catch their bus.
-   ============================================================ */
-const SUPABASE_URL = 'https://vdawvqirjwlzvjzijhyd.supabase.co';       // e.g. 'https://xxxxxxxx.supabase.co'
-const SUPABASE_ANON_KEY = 'sb_publishable_2vQX9TolrGkdl2hlOHSG4g_NAKuHKUb';  // the public "anon" key from Project Settings → API
-
+let db = null;
 let LINES = [];
-let dbReady = false;
-let dbSource = null; // 'supabase' once a load has actually succeeded
-
-function rowToLine(row){
-  return {
-    code: row.code,
-    from: row.from_name,
-    to: row.to_name,
-    isDemo: !!row.is_demo,
-    stops: row.stops,
-    ...(row.schedules ? {schedules: row.schedules} : {}),
-    ...(row.runs ? {runs: row.runs} : {}),
-  };
-}
-
-async function loadLinesFromDB(){
-  if(!SUPABASE_URL || !SUPABASE_ANON_KEY || !window.supabase || !window.supabase.createClient){
-    dbReady = true;
-    return false;
-  }
-  try{
-    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data, error } = await client.from('lines').select('*').order('code');
-    if(error) throw error;
-    if(!data || !data.length){ dbReady = true; return false; }
-    LINES = data.map(rowToLine);
-    dbSource = 'supabase';
-    dbReady = true;
-    return true;
-  } catch(e){
-    console.error('Dohvaćanje iz baze nije uspjelo.', e);
-    dbReady = true;
-    return false;
-  }
-}
-
-
-function nowParts(){
-  const d = new Date();
-  const isoDay = d.getDay() === 0 ? 7 : d.getDay(); // 1..7, Mon..Sun
-  return {d, isoDay, minutes: d.getHours()*60 + d.getMinutes()};
-}
-function timeToMinutes(t){
-  if(t === "-" || !t) return null;
-  const [h,m] = t.split(":").map(Number);
-  return h*60+m;
-}
-function runsToday(run, isoDay){
-  return run.days.includes(String(isoDay));
-}
-
-/* Season/validity period support (e.g. "vrijedi od 1.9. do 30.6.").
-   period = { from:"MM-DD", to:"MM-DD" }. Handles ranges that wrap the
-   New Year (from > to, e.g. school-year timetables running Sep -> Jun). */
-function mmdd(date){
-  return String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
-}
-function isWithinSeason(period, date){
-  if(!period) return true;
-  const val = mmdd(date);
-  const {from, to} = period;
-  if(from <= to){
-    return val >= from && val <= to;
-  }
-  return val >= from || val <= to; // wraps across Dec 31 -> Jan 1
-}
-function isoDayOf(date){
-  return date.getDay() === 0 ? 7 : date.getDay();
-}
-function isSameCalendarDay(a,b){
-  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-}
-function pad2(n){ return String(n).padStart(2,'0'); }
-function toISODate(date){
-  return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
-}
-
-/* Picks the seasonal timetable (from line.schedules) that covers `date`.
-   Falls back to a single implicit schedule for lines that don't define
-   seasonal variants at all. Returns null if no defined period covers
-   the date (a genuine gap in the published timetable). */
-function getScheduleForDate(line, date){
-  if(line.schedules){
-    return line.schedules.find(sch => isWithinSeason(sch.season, date)) || null;
-  }
-  return { season: line.season || null, runs: line.runs };
-}
-
-/* A single run can also carry its own `season`, overriding the schedule's
-   season — needed for timetables where only SOME departures are seasonal
-   (e.g. one extra summer-only run inside an otherwise year-round table). */
-function effectiveRunSeason(schedule, run){
-  return run.season || (schedule && schedule.season) || null;
-}
-
-/* Whether a specific run actually operates on `date`: right weekday AND
-   within its (possibly run-specific) validity period. */
-function runOperatesOn(schedule, run, date){
-  const isoDay = isoDayOf(date);
-  return run.days.includes(String(isoDay)) && isWithinSeason(effectiveRunSeason(schedule, run), date);
-}
-
-/* find the next upcoming departure across all runs of a line, considering
-   only the line's ORIGIN stop time for each run (col index 0) */
-function nextDeparture(line){
-  const {minutes} = nowParts();
-  const today = new Date();
-  let best = null;
-  // check today and following days up to 8 ahead
-  for(let offset=0; offset<8; offset++){
-    const checkDate = new Date(today);
-    checkDate.setDate(today.getDate() + offset);
-    const schedule = getScheduleForDate(line, checkDate);
-    if(!schedule) continue; // no published timetable for this date
-    schedule.runs.forEach(run=>{
-      if(!runOperatesOn(schedule, run, checkDate)) return;
-      const originTime = run.dir === "polazak" ? run.times[0] : run.times[run.times.length-1];
-      const mins = timeToMinutes(originTime);
-      if(mins === null) return;
-      if(offset === 0 && mins <= minutes) return; // already passed today
-      const rank = offset*1440 + mins;
-      if(best === null || rank < best.rank){
-        best = {rank, run, time:originTime, offset, dir:run.dir};
-      }
-    });
-  }
-  return best;
-}
-
-/* ============================================================
-   LIST VIEW RENDER
-   ============================================================ */
-const lineListEl = document.getElementById('lineList');
-const searchInput = document.getElementById('searchInput');
-
-function renderList(filter=""){
-  const f = filter.trim().toLowerCase();
-  lineListEl.innerHTML = "";
-  LINES.filter(l=>{
-    if(!f) return true;
-    return l.code.includes(f) || l.from.toLowerCase().includes(f) || l.to.toLowerCase().includes(f);
-  }).forEach(line=>{
-    const nd = nextDeparture(line);
-    const card = document.createElement('div');
-    card.className = 'line-card';
-    card.innerHTML = `
-      <div class="line-badge">${line.code}</div>
-      <div class="line-info">
-        <div class="line-route">${line.from} — ${line.to}</div>
-        <div class="line-meta">${line.stops.length} stajališta · ${line.stops[line.stops.length-1].km} km${line.isDemo ? ' · <span class="demo-tag">PRIMJER</span>' : ''}</div>
-      </div>
-      <div class="line-next">
-        <span class="lbl">Sljedeći</span>
-        <span class="val ${nd?'':'off'}">${nd ? fmtRelative(nd) : "—"}</span>
-      </div>
-    `;
-    card.addEventListener('click', ()=>openDetail(line));
-    lineListEl.appendChild(card);
-  });
-  if(!lineListEl.children.length){
-    lineListEl.innerHTML = `<div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2M9 9h.01M15 9h.01"/></svg>
-      <p>Nema linija koje odgovaraju pretrazi.</p></div>`;
-  }
-}
-function fmtRelative(nd){
-  if(nd.offset === 0) return nd.time;
-  if(nd.offset === 1) return "sutra " + nd.time;
-  return DAY_LABELS[(nowParts().isoDay - 1 + nd.offset) % 7] + " " + nd.time;
-}
-searchInput.addEventListener('input', e=>{ if(dbReady) renderList(e.target.value); });
-
-async function initApp(){
-  lineListEl.innerHTML = `<div class="empty-state">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10" stroke-dasharray="50 20"/></svg>
-    <p>Učitavanje voznog reda iz baze…</p></div>`;
-  const ok = await loadLinesFromDB();
-  const footerNote = document.getElementById('footerNote');
-
-  if(!ok){
-    lineListEl.innerHTML = `<div class="empty-state error-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12" y2="16.01"/></svg>
-      <p>Greška pri dohvaćanju podataka !!!</p></div>`;
-    if(footerNote) footerNote.style.display = 'none';
-    return;
-  }
-
-  renderList();
-  if(footerNote){
-    footerNote.innerHTML += `<br><span style="opacity:.7;">Izvor podataka: Supabase baza (živi podaci)</span>`;
-  }
-}
-initApp();
-
-/* ============================================================
-   DETAIL VIEW
-   ============================================================ */
-const listView = document.getElementById('list-view');
-const detailView = document.getElementById('detail-view');
-document.getElementById('backBtn').addEventListener('click', ()=>{
-  detailView.style.display = 'none';
-  listView.style.display = 'block';
-});
-
 let currentLine = null;
 let currentDir = 'polazak';
-let currentRun = null; // null = show departure list; a run object = show its stop schedule
-let selectedDate = new Date(); // date being previewed; defaults to today each time a line opens
+let currentRun = null;
+let selectedDate = new Date();
+let currentTimetable = [];
+let flapInterval = null;
 
-function allRunsOf(line){
-  return line.schedules ? line.schedules.flatMap(s=>s.runs) : line.runs;
-}
-
+const lineListEl = document.getElementById('lineList');
+const searchInput = document.getElementById('searchInput');
+const listView = document.getElementById('list-view');
+const detailView = document.getElementById('detail-view');
 const dateInputEl = document.getElementById('dateInput');
 const dateWeekdayEl = document.getElementById('dateWeekday');
 
-function refreshDateUI(){
-  dateInputEl.value = toISODate(selectedDate);
-  const isToday = isSameCalendarDay(selectedDate, new Date());
-  dateWeekdayEl.textContent = isToday ? 'Danas' : DAY_LABELS[isoDayOf(selectedDate)-1];
-  dateWeekdayEl.classList.toggle('is-today', isToday);
+function pad(n){ return String(n).padStart(2,'0'); }
+function toISODate(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function isToday(d){ const n=new Date(); return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate(); }
+function isoDay(d){ return d.getDay()===0 ? 7 : d.getDay(); }
+function timeMinutes(t){ if(!t) return null; const [h,m]=t.split(':').map(Number); return h*60+m; }
+function dayLabel(days){
+  const names=[];
+  ['PON','UTO','SRI','ČET','PET','SUB','NED'].forEach((n,i)=>{ if(days[i]) names.push(n); });
+  if(names.length===7) return 'Svaki dan';
+  if(names.length===5 && names.slice(0,5).every((_,i)=>days[i]) && !days[5] && !days[6]) return 'Radnim danom (Pon–Pet)';
+  return names.join(', ');
 }
-dateInputEl.addEventListener('change', ()=>{
+function fmtRelative(next){
+  if(!next) return '—';
+  if(next.offset===0) return next.time;
+  if(next.offset===1) return 'sutra ' + next.time;
+  return DAY_LABELS[(isoDay(new Date())-1+next.offset)%7] + ' ' + next.time;
+}
+function directionLabel(dir){
+  return dir==='polazak' ? `${currentLine.from_name} → ${currentLine.to_name}` : `${currentLine.to_name} → ${currentLine.from_name}`;
+}
+
+async function initDB(){
+  if(!SUPABASE_URL || !SUPABASE_ANON_KEY){ throw new Error('Nisu upisani Supabase URL i anon ključ.'); }
+  db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const {data,error}=await db.from('lines').select('id,code,from_name,to_name,is_circular,is_demo').order('code');
+  if(error) throw error;
+  LINES=data||[];
+}
+
+async function loadNextDepartures(){
+  const now=new Date();
+  const {data,error}=await db.rpc('get_lines_with_next_departure',{p_date:toISODate(now),p_now:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`});
+  if(error) throw error;
+  return data||[];
+}
+
+async function loadTimetable(lineId,date,dir){
+  const {data,error}=await db.rpc('get_line_timetable',{p_line_id:lineId,p_date:toISODate(date),p_direction:dir});
+  if(error) throw error;
+  return data||[];
+}
+
+function refreshDateUI(){
+  dateInputEl.value=toISODate(selectedDate);
+  dateWeekdayEl.textContent=isToday(selectedDate)?'Danas':DAY_LABELS[isoDay(selectedDate)-1];
+  dateWeekdayEl.classList.toggle('is-today',isToday(selectedDate));
+}
+
+dateInputEl.addEventListener('change',async()=>{
   if(!dateInputEl.value) return;
-  const [y,m,d] = dateInputEl.value.split('-').map(Number);
-  selectedDate = new Date(y, m-1, d);
-  currentRun = null;
-  refreshDateUI();
-  renderDetail();
+  const [y,m,d]=dateInputEl.value.split('-').map(Number);
+  selectedDate=new Date(y,m-1,d);
+  currentRun=null;
+  await renderDetail();
 });
 
-function openDetail(line){
-  currentLine = line;
-  currentDir = allRunsOf(line).some(r=>r.dir==='polazak') ? 'polazak' : 'povratak';
-  currentRun = null;
-  selectedDate = new Date();
-  document.getElementById('detailBadge').textContent = line.code;
-  document.getElementById('detailTitle').textContent = `${line.from} — ${line.to}`;
-  document.getElementById('detailSub').textContent = `Linija ${line.code} · SiMBus`;
-
-  // tabs
-  const dirs = [...new Set(allRunsOf(line).map(r=>r.dir))];
-  const tabsEl = document.getElementById('tabs');
-  tabsEl.innerHTML = "";
-  dirs.forEach(d=>{
-    const t = document.createElement('div');
-    t.className = 'tab' + (d===currentDir ? ' active':'');
-    t.textContent = d === 'polazak' ? `Polazak · ${line.from} → ${line.to}` : `Povratak · ${line.to} → ${line.from}`;
-    t.addEventListener('click', ()=>{ currentDir = d; currentRun = null; renderDetail(); });
-    tabsEl.appendChild(t);
-  });
-
-  refreshDateUI();
-  listView.style.display = 'none';
-  detailView.style.display = 'block';
-  renderDetail();
-  startFlapClock();
-}
-
-function renderDetail(){
-  const line = currentLine;
-  // refresh tab active states
-  document.querySelectorAll('.tab').forEach((t,i)=>{
-    const dirs = [...new Set(allRunsOf(line).map(r=>r.dir))];
-    t.classList.toggle('active', dirs[i]===currentDir);
-  });
-
-  if(currentRun === null){
-    renderRunList();
-  } else {
-    renderRunDetail();
-  }
-
-  // live card description (independent of which sub-view is open — always the real "now")
-  const nd = nextDeparture(line);
-  const liveDesc = document.getElementById('liveDesc');
-  if(nd){
-    const dirLabel = nd.dir === 'polazak' ? `${line.from} → ${line.to}` : `${line.to} → ${line.from}`;
-    liveDesc.textContent = `${dirLabel}${nd.offset>0? " · " + fmtRelative(nd).split(" ")[0] : ""}`;
-  } else {
-    liveDesc.textContent = "Nema više polazaka";
-  }
-  renderFlap(nd ? nd.time : "--:--");
-}
-
-/* ---------- Sub-view 1: list of departures for the active direction, on selectedDate ---------- */
-function renderRunList(){
-  const line = currentLine;
-  const panelWrap = document.getElementById('routePanels');
-  const schedule = getScheduleForDate(line, selectedDate);
-  const isToday = isSameCalendarDay(selectedDate, new Date());
-  const dateLabel = `${selectedDate.getDate()}.${selectedDate.getMonth()+1}.${selectedDate.getFullYear()}.`;
-  const weekdayLabel = DAY_LABELS[isoDayOf(selectedDate)-1];
-
-  if(!schedule){
-    panelWrap.innerHTML = `<div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-      <p>Za odabrani datum nije objavljen vozni red za ovu liniju.</p></div>`;
-    return;
-  }
-
-  const runsForDir = schedule.runs.filter(r=>r.dir===currentDir);
-  const anyRunsToday = runsForDir.some(run => runOperatesOn(schedule, run, selectedDate));
-
-  const cards = runsForDir.map(run=>{
-    // Walk the run's times in travel order to find where it actually starts/ends —
-    // a run doesn't have to cover the line's full nominal route (e.g. a summer-only
-    // departure that only serves part of the line), so we read the real endpoints
-    // off the data itself rather than assuming line.from/line.to.
-    const orderedTimes = currentDir === 'polazak' ? run.times : [...run.times].reverse();
-    const orderedStops = currentDir === 'polazak' ? line.stops : [...line.stops].reverse();
-    const firstIdx = orderedTimes.findIndex(t => t && t !== '-');
-    let lastIdx = -1;
-    for(let i=orderedTimes.length-1; i>=0; i--){ if(orderedTimes[i] && orderedTimes[i] !== '-'){ lastIdx = i; break; } }
-    const originTime = firstIdx >= 0 ? orderedTimes[firstIdx] : '-';
-    const destTime = lastIdx >= 0 ? orderedTimes[lastIdx] : '-';
-    const originName = firstIdx >= 0 ? orderedStops[firstIdx].name : (currentDir === 'polazak' ? line.from : line.to);
-    const destName = lastIdx >= 0 ? orderedStops[lastIdx].name : (currentDir === 'polazak' ? line.to : line.from);
-
-    const dayMatches = run.days.includes(String(isoDayOf(selectedDate)));
-    const runSeason = effectiveRunSeason(schedule, run);
-    const inSeason = isWithinSeason(runSeason, selectedDate);
-    const operatesToday = dayMatches && inSeason;
-    const chipLabel = isToday ? 'Vozi danas' : 'Vozi taj dan';
-    const offSeasonChip = dayMatches && !inSeason;
-    return `
-      <div class="run-card ${operatesToday?'today':''}" data-run="${run.id}">
-        <div class="run-time-badge">${originTime}</div>
-        <div class="run-info">
-          <div class="run-route">${originName} → ${destName} <span style="color:var(--muted);font-weight:500;">· dolazak ${destTime}</span></div>
-          <div class="run-meta">
-            <span class="run-days-label">${dayPatternLabel(run.days)}${runSeason ? ` · vrijedi ${runSeason.label}` : ''}</span>
-            ${operatesToday ? `<span class="run-today-chip">${chipLabel}</span>` : ''}
-            ${offSeasonChip ? `<span class="run-today-chip off">Izvan razdoblja</span>` : ''}
-          </div>
-        </div>
-        <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>`;
-  }).join("");
-
-  panelWrap.innerHTML = `
-    ${line.isDemo ? '<div class="demo-banner">⚠ Ovo su izmišljeni podaci samo za prikaz izgleda aplikacije — nisu stvarni vozni red linije ' + line.code + '.</div>' : ''}
-    ${!anyRunsToday ? `<div class="no-service-banner">🚫 Linija ${line.code} ne prometuje ${isToday ? 'danas' : `(${weekdayLabel}, ${dateLabel})`} u ovom smjeru.</div>` : ''}
-    <div class="run-list-head">Odaberi polazak za prikaz stanica i vremena${schedule.season ? ` · vrijedi ${schedule.season.label}` : ''}</div>
-    <div class="run-list">${cards}</div>
-  `;
-
-  panelWrap.querySelectorAll('.run-card').forEach(card=>{
-    card.addEventListener('click', ()=>{
-      const runId = card.getAttribute('data-run');
-      currentRun = runsForDir.find(r=>r.id===runId);
-      renderDetail();
-    });
-  });
-}
-
-/* ---------- Sub-view 2: stop-by-stop schedule for one selected departure ---------- */
-function renderRunDetail(){
-  const line = currentLine;
-  const run = currentRun;
-  const isViewingToday = isSameCalendarDay(selectedDate, new Date());
-  const {minutes} = nowParts(); // real current time; only meaningful when isViewingToday
-  const panelWrap = document.getElementById('routePanels');
-  const stops = currentDir === 'polazak' ? line.stops : [...line.stops].reverse();
-  const orderedTimes = currentDir === 'polazak' ? run.times : [...run.times].reverse();
-  const schedule = getScheduleForDate(line, selectedDate);
-  const runsOnSelectedDate = runOperatesOn(schedule, run, selectedDate);
-  const liveTrackingActive = runsOnSelectedDate && isViewingToday;
-
-  // next stop not yet reached — only meaningful while actually tracking today's run
-  let highlightStopIdx = -1;
-  if(liveTrackingActive){
-    for(let si=0; si<orderedTimes.length; si++){
-      const m = timeToMinutes(orderedTimes[si]);
-      if(m !== null && m > minutes){ highlightStopIdx = si; break; }
-    }
-  }
-
-  let rowsHtml = "";
-  stops.forEach((stop, si)=>{
-    const isEndpoint = si===0 || si===stops.length-1;
-    const t = orderedTimes[si];
-    const dash = (t === "-" || !t);
-    const isPast = !dash && liveTrackingActive && timeToMinutes(t) <= minutes;
-    const isHighlight = si===highlightStopIdx;
-    rowsHtml += `
-      <div class="stop-row">
-        <div class="stop-name-col">
-          <div class="stop-name ${isEndpoint?'endpoint':''}">${stop.name}</div>
-          <div class="stop-km">${stop.km} km</div>
-        </div>
-        <div class="stop-times">
-          <div class="time-chip ${dash?'dash':''} ${isHighlight?'highlight':''} ${isPast?'past':''}">${dash?'–':t}</div>
-        </div>
-      </div>`;
-  });
-
-  let railDots = "";
-  stops.forEach((s,si)=>{
-    const isNext = si===highlightStopIdx;
-    railDots += `<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot ${isNext?'next':''}"></div></div>`;
-  });
-
-  const firstIdx = orderedTimes.findIndex(t => t && t !== '-');
-  let lastIdxD = -1;
-  for(let i=orderedTimes.length-1; i>=0; i--){ if(orderedTimes[i] && orderedTimes[i] !== '-'){ lastIdxD = i; break; } }
-  const originName = firstIdx >= 0 ? stops[firstIdx].name : (currentDir === 'polazak' ? line.from : line.to);
-  const destName = lastIdxD >= 0 ? stops[lastIdxD].name : (currentDir === 'polazak' ? line.to : line.from);
-  const originTime = firstIdx >= 0 ? orderedTimes[firstIdx] : '-';
-  const runSeason = effectiveRunSeason(schedule, run);
-
-  let statusLine = dayPatternLabel(run.days);
-  if(runSeason) statusLine += ` · vrijedi ${runSeason.label}`;
-  if(runsOnSelectedDate) statusLine += isViewingToday ? ' · vozi danas' : ` · vozi na ${selectedDate.getDate()}.${selectedDate.getMonth()+1}.`;
-  else statusLine += ' · ne vozi na odabrani datum';
-
-  panelWrap.innerHTML = `
-    <div class="run-detail-head">
-      <div class="run-back" id="runBack">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        Svi polasci
-      </div>
-    </div>
-    <div class="route-panel" style="margin-top:8px;">
-      <div class="route-panel-head">
-        <div>
-          <div class="run-summary-title">${originTime} · ${originName} → ${destName}</div>
-          <span>${statusLine}</span>
-        </div>
-      </div>
-      <div class="route-body">
-        <div class="rail-col" id="railCol">
-          <div class="rail-line"></div>
-          ${railDots}
-        </div>
-        <div style="flex:1;">${rowsHtml}</div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('runBack').addEventListener('click', ()=>{
-    currentRun = null;
-    renderDetail();
-  });
-
-  updateBusMarker();
-}
-
-/* split-flap display */
-function renderFlap(timeStr){
-  const flapRow = document.getElementById('flapRow');
-  flapRow.innerHTML = "";
-  const chars = timeStr.split("");
-  chars.forEach(ch=>{
-    const el = document.createElement('div');
-    el.className = 'flap' + (ch===':' ? ' colon' : '');
-    el.textContent = ch;
-    flapRow.appendChild(el);
-  });
-}
-const ROW_HEIGHT = 52;
-const RAIL_TOP_OFFSET = 6; // matches .rail-col padding-top
-
-/* Returns the current fractional position of the bus along the currently
-   selected departure (currentRun), if that specific run is presently
-   between its first and last stop time today — using seconds precision
-   so the marker glides smoothly rather than jumping minute to minute. */
-function getBusPosition(line, dir, run){
-  const now = new Date();
-  const nowSec = now.getHours()*3600 + now.getMinutes()*60 + now.getSeconds();
-
-  if(!isSameCalendarDay(selectedDate, now)) return null; // only track live while viewing today
-  if(!runOperatesOn(getScheduleForDate(line, now), run, now)) return null;
-  const orderedTimes = dir === 'polazak' ? run.times : [...run.times].reverse();
-  const secs = orderedTimes.map(t=>{
-    if(t === '-' || !t) return null;
-    const [h,m] = t.split(':').map(Number);
-    return h*3600 + m*60;
-  });
-  for(let i=0; i<secs.length-1; i++){
-    if(secs[i] === null) continue;
-    let j = i+1;
-    while(j < secs.length && secs[j] === null) j++;
-    if(j >= secs.length) continue;
-    if(nowSec >= secs[i] && nowSec <= secs[j]){
-      const frac = secs[j] === secs[i] ? 0 : (nowSec - secs[i]) / (secs[j] - secs[i]);
-      return { rowFrom:i, rowTo:j, frac };
-    }
-  }
-  return null;
-}
-
-function updateBusMarker(){
-  if(!currentLine || !currentRun || detailView.style.display === 'none') return;
-  const railCol = document.getElementById('railCol');
-  if(!railCol) return;
-
-  const pos = getBusPosition(currentLine, currentDir, currentRun);
-  let marker = document.getElementById('busMarker');
-
-  if(!pos){
-    if(marker) marker.remove();
-    return;
-  }
-  const topPx = RAIL_TOP_OFFSET + (pos.rowFrom*ROW_HEIGHT + ROW_HEIGHT/2) + pos.frac*((pos.rowTo-pos.rowFrom)*ROW_HEIGHT);
-
-  if(!marker){
-    marker = document.createElement('div');
-    marker.id = 'busMarker';
-    marker.className = 'bus-marker';
-    marker.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1A1.5 1.5 0 119 15.5 1.5 1.5 0 017.5 17zm9 0a1.5 1.5 0 111.5-1.5 1.5 1.5 0 01-1.5 1.5zM18 11H6V6h12v5z"/></svg>';
-    railCol.appendChild(marker);
-    marker.style.top = topPx + 'px'; // set once without transition to avoid a slide-in from top:6px on first paint
-    requestAnimationFrame(()=>{ marker.style.transition = 'top 1s linear'; });
-  } else {
-    marker.style.top = topPx + 'px';
-  }
-}
-
-function startFlapClock(){
+document.getElementById('backBtn').addEventListener('click',()=>{
+  detailView.style.display='none';
+  listView.style.display='block';
   if(flapInterval) clearInterval(flapInterval);
-  flapInterval = setInterval(()=>{
-    if(!currentLine || detailView.style.display==='none') return;
-    renderDetail();
-  }, 15000); // re-evaluate schedule against system time every 15s
-}
+});
 
-/* ============================================================
-   GLOBAL LIVE CLOCK — reads system time every second, drives
-   both the visible clock readout and periodic view refreshes
-   ============================================================ */
-function pad(n){ return String(n).padStart(2,'0'); }
-function tickClock(){
-  const d = new Date();
-  const label = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const listSpan = document.querySelector('#listClock span:last-child');
-  const detailSpan = document.querySelector('#detailClock span:last-child');
-  if(listSpan) listSpan.textContent = label;
-  if(detailSpan) detailSpan.textContent = label;
-}
-tickClock();
-setInterval(()=>{ tickClock(); updateBusMarker(); }, 1000);
-
-// keep the line list's "sljedeći polazak" values current even while idle on that screen
-setInterval(()=>{
-  if(listView.style.display !== 'none'){
-    renderList(searchInput.value);
+async function renderList(filter=''){
+  lineListEl.innerHTML=`<div class="empty-state"><p>Učitavanje…</p></div>`;
+  try{
+    const nexts=await loadNextDepartures();
+    const byId=new Map(nexts.map(x=>[x.line_id,x]));
+    const f=filter.trim().toLowerCase();
+    const rows=LINES.filter(l=>!f||l.code.toLowerCase().includes(f)||l.from_name.toLowerCase().includes(f)||l.to_name.toLowerCase().includes(f));
+    lineListEl.innerHTML=rows.map(line=>{
+      const n=byId.get(line.id);
+      return `<div class="line-card" data-line="${line.id}">
+        <div class="line-badge">${line.code}</div>
+        <div class="line-info">
+          <div class="line-route">${line.from_name} — ${line.to_name}</div>
+          <div class="line-meta">${n?.stop_count||0} stajališta${line.is_circular?' · kružna':''}${line.is_demo?' · <span class="demo-tag">PRIMJER</span>':''}</div>
+        </div>
+        <div class="line-next"><span class="lbl">Sljedeći</span><span class="val ${n?.next_time?'':'off'}">${n?.next_time||'—'}</span></div>
+      </div>`;
+    }).join('')||`<div class="empty-state"><p>Nema linija koje odgovaraju pretrazi.</p></div>`;
+    lineListEl.querySelectorAll('.line-card').forEach(card=>card.addEventListener('click',()=>openDetail(Number(card.dataset.line))));
+  }catch(e){
+    console.error(e);
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p></div>`;
   }
-}, 15000);
+}
+searchInput.addEventListener('input',()=>renderList(searchInput.value));
+
+async function openDetail(lineId){
+  currentLine=LINES.find(x=>x.id===lineId);
+  if(!currentLine) return;
+  currentDir='polazak';
+  currentRun=null;
+  selectedDate=new Date();
+  refreshDateUI();
+  listView.style.display='none';
+  detailView.style.display='block';
+  document.getElementById('detailBadge').textContent=currentLine.code;
+  document.getElementById('detailTitle').textContent=`${currentLine.from_name} — ${currentLine.to_name}`;
+  document.getElementById('detailSub').textContent=currentLine.is_circular?'Kružna linija':'Vozni red';
+  await renderDetail();
+  if(flapInterval) clearInterval(flapInterval);
+  flapInterval=setInterval(()=>{ if(currentLine) renderLiveCard(); },15000);
+}
+
+async function renderDetail(){
+  if(!currentLine) return;
+  refreshDateUI();
+  const allDirs=['polazak','povratak'];
+  const tabs=document.getElementById('tabs');
+  tabs.innerHTML=allDirs.map(d=>`<div class="tab ${d===currentDir?'active':''}" data-dir="${d}">${d==='polazak'?'Polazak':'Povratak'}</div>`).join('');
+  tabs.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',async()=>{
+    currentDir=t.dataset.dir;
+    currentRun=null;
+    await renderDetail();
+  }));
+  currentTimetable=await loadTimetable(currentLine.id,selectedDate,currentDir);
+  if(currentRun){
+    const found=currentTimetable.find(x=>String(x.departure_id)===String(currentRun.departure_id));
+    currentRun=found||null;
+  }
+  if(currentRun) renderRunDetail(); else renderRunList();
+  await renderLiveCard();
+}
+
+function renderRunList(){
+  const panel=document.getElementById('routePanels');
+  const active=currentTimetable;
+  const dateLabel=`${selectedDate.getDate()}.${selectedDate.getMonth()+1}.${selectedDate.getFullYear()}.`;
+  const today=isToday(selectedDate);
+  const cards=active.map(run=>{
+    const stops=run.stops||[];
+    const valid=stops.filter(s=>s.time);
+    const first=valid[0],last=valid[valid.length-1];
+    return `<div class="run-card ${today?'today':''}" data-run="${run.departure_id}">
+      <div class="run-time-badge">${first?.time||'—'}</div>
+      <div class="run-info">
+        <div class="run-route">${first?.name||'—'} → ${last?.name||'—'} <span style="color:var(--muted);font-weight:500;">· dolazak ${last?.time||'—'}</span></div>
+        <div class="run-meta"><span class="run-days-label">Vrijedi za ${DAY_LABELS[isoDay(selectedDate)-1]} · ${dateLabel}</span>${today?'<span class="run-today-chip">Danas</span>':''}</div>
+      </div>
+      <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>`;
+  }).join('');
+  panel.innerHTML=`${currentLine.is_demo?'<div class="demo-banner">⚠ Ovo su izmišljeni podaci samo za prikaz izgleda aplikacije.</div>':''}${!active.length?`<div class="no-service-banner">🚫 Linija ${currentLine.code} ne prometuje ${today?'danas':`na ${dateLabel}`} u ovom smjeru.</div>`:''}<div class="run-list-head">Odaberi polazak za prikaz stanica i vremena</div><div class="run-list">${cards}</div>`;
+  panel.querySelectorAll('.run-card').forEach(card=>card.addEventListener('click',()=>{
+    currentRun=active.find(x=>String(x.departure_id)===card.dataset.run);
+    renderRunDetail();
+  }));
+}
+
+function renderRunDetail(){
+  const run=currentRun;
+  const panel=document.getElementById('routePanels');
+  const stops=run?.stops||[];
+  const now=new Date();
+  const live=isToday(selectedDate);
+  const nowMin=now.getHours()*60+now.getMinutes();
+  const valid=stops.filter(s=>s.time);
+  const first=valid[0],last=valid[valid.length-1];
+  const rows=stops.map((s,i)=>{
+    const m=timeMinutes(s.time);
+    const past=live&&m!==null&&m<=nowMin;
+    const next=live&&m!==null&&m>nowMin&&valid.findIndex(v=>v.time===s.time)===valid.findIndex(v=>v.time===s.time);
+    return `<div class="stop-row"><div class="stop-name-col"><div class="stop-name ${i===0||i===stops.length-1?'endpoint':''}">${s.name}</div>${s.km!=null?`<div class="stop-km">${s.km} km</div>`:''}</div><div class="stop-times"><div class="time-chip ${next?'highlight':''} ${past?'past':''}">${s.time||'–'}</div></div></div>`;
+  }).join('');
+  const dots=stops.map((s,i)=>`<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot"></div></div>`).join('');
+  panel.innerHTML=`<div class="run-detail-head"><div class="run-back" id="runBack"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Svi polasci</div></div><div class="route-panel" style="margin-top:8px;"><div class="route-panel-head"><div><div class="run-summary-title">${first?.time||'—'} · ${first?.name||currentLine.from_name} → ${last?.name||currentLine.to_name}</div><span>${isToday(selectedDate)?'Vozi danas':'Vozni red za '+selectedDate.getDate()+'.'+(selectedDate.getMonth()+1)+'.'+selectedDate.getFullYear()+'.'}</span></div></div><div class="route-body"><div class="rail-col" id="railCol"><div class="rail-line"></div>${dots}</div><div style="flex:1;">${rows}</div></div></div>`;
+  document.getElementById('runBack').addEventListener('click',()=>{currentRun=null;renderRunList();});
+}
+
+async function renderLiveCard(){
+  if(!currentLine) return;
+  try{
+    const now=new Date();
+    const {data,error}=await db.rpc('get_lines_with_next_departure',{p_date:toISODate(now),p_now:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`});
+    if(error) throw error;
+    const n=(data||[]).find(x=>x.line_id===currentLine.id);
+    document.getElementById('liveDesc').textContent=n?.next_time ? (n.next_direction==='polazak'?`${currentLine.from_name} → ${currentLine.to_name}`:`${currentLine.to_name} → ${currentLine.from_name}`) : 'Nema više polazaka';
+    renderFlap(n?.next_time||'--:--');
+  }catch(e){ console.error(e); }
+}
+function renderFlap(t){
+  const el=document.getElementById('flapRow'); el.innerHTML='';
+  t.split('').forEach(ch=>{const x=document.createElement('div');x.className='flap'+(ch===':'?' colon':'');x.textContent=ch;el.appendChild(x);});
+}
+
+function tickClock(){
+  const d=new Date(),label=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  document.querySelectorAll('#listClock span:last-child,#detailClock span:last-child').forEach(x=>x.textContent=label);
+}
+tickClock();setInterval(tickClock,1000);
+setInterval(()=>{if(listView.style.display!=='none') renderList(searchInput.value);},30000);
+
+(async function(){
+  lineListEl.innerHTML='<div class="empty-state"><p>Učitavanje voznog reda iz baze…</p></div>';
+  try{
+    await initDB();
+    renderList();
+    document.getElementById('footerNote').innerHTML+=' <br><span style="opacity:.7;">Izvor podataka: Supabase baza</span>';
+  }catch(e){
+    console.error(e);
+    lineListEl.innerHTML='<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p></div>';
+  }
+})();
 </script>
 </body>
 </html>
