@@ -902,7 +902,7 @@ async function renderList(filter=''){
     lineListEl.querySelectorAll('.line-card').forEach(card=>card.addEventListener('click',()=>openDetail(Number(card.dataset.line))));
   }catch(e){
     console.error(e);
-    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka.</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
   }
 }
 searchInput.addEventListener('input',()=>renderList(searchInput.value));
