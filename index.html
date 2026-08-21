@@ -585,6 +585,23 @@
     font-family:'IBM Plex Mono',monospace;
     margin-top:1px;
   }
+  .stop-note{
+    font-size:11px;
+    color:#8A5A00;
+    font-weight:700;
+    margin-top:2px;
+  }
+  .no-service-reason{
+    display:block;
+    margin-top:3px;
+    font-weight:700;
+  }
+  .no-service-next{
+    display:block;
+    margin-top:5px;
+    color:#5E4B17;
+    font-weight:500;
+  }
   .stop-times{
     display:flex;
     gap:6px;
@@ -803,6 +820,20 @@ async function loadTimetable(lineId,date,dir){
   return data||[];
 }
 
+async function loadServiceStatus(lineId,date,dir){
+  const {data,error}=await db.rpc('get_line_service_status',{p_line_id:lineId,p_date:toISODate(date),p_direction:dir});
+  if(error) throw error;
+  return (data||[])[0]||null;
+}
+
+function formatHrServiceDate(iso){
+  if(!iso) return '';
+  const [y,m,d]=iso.split('-').map(Number);
+  const dt=new Date(y,m-1,d);
+  const weekday=['nedjelja','ponedjeljak','utorak','srijeda','četvrtak','petak','subota'][dt.getDay()];
+  return `${weekday}, ${d}.${m}.${y}.`;
+}
+
 function refreshDateUI(){
   dateInputEl.value=toISODate(selectedDate);
   dateWeekdayEl.textContent=isToday(selectedDate)?'Danas':DAY_LABELS[isoDay(selectedDate)-1];
@@ -877,7 +908,10 @@ async function renderDetail(){
     currentRun=null;
     await renderDetail();
   }));
-  currentTimetable=await loadTimetable(currentLine.id,selectedDate,currentDir);
+  [currentTimetable,currentServiceStatus]=await Promise.all([
+    loadTimetable(currentLine.id,selectedDate,currentDir),
+    loadServiceStatus(currentLine.id,selectedDate,currentDir)
+  ]);
   if(currentRun){
     const found=currentTimetable.find(x=>String(x.departure_id)===String(currentRun.departure_id));
     currentRun=found||null;
@@ -904,7 +938,16 @@ function renderRunList(){
       <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     </div>`;
   }).join('');
-  panel.innerHTML=`${!active.length?`<div class="no-service-banner">🚫 Linija ${currentLine.code} ne prometuje ${today?'danas':`na ${dateLabel}`} u ovom smjeru.</div>`:''}<div class="run-list-head">Odaberi polazak za prikaz stanica i vremena</div><div class="run-list">${cards}</div>`;
+  const status=currentServiceStatus;
+  let noService='';
+  if(!active.length){
+    const reason=status?.message ? `<span class="no-service-reason">${status.message}</span>` : '';
+    const next=status?.next_service_date
+      ? `<span class="no-service-next">Sljedeći dan prometovanja je ${formatHrServiceDate(status.next_service_date)}${status.next_service_time?` u ${String(status.next_service_time).slice(0,5)}`:''}.</span>`
+      : '';
+    noService=`<div class="no-service-banner">🚫 Linija ${currentLine.code} ne prometuje ${today?'danas':`na ${dateLabel}`} u ovom smjeru.${reason}${next}</div>`;
+  }
+  panel.innerHTML=`${noService}<div class="run-list-head">Odaberi polazak za prikaz stanica i vremena</div><div class="run-list">${cards}</div>`;
   panel.querySelectorAll('.run-card').forEach(card=>card.addEventListener('click',()=>{
     currentRun=active.find(x=>String(x.departure_id)===card.dataset.run);
     renderRunDetail();
@@ -924,7 +967,7 @@ function renderRunDetail(){
     const m=timeMinutes(s.time);
     const past=live&&m!==null&&m<=nowMin;
     const next=live&&m!==null&&m>nowMin&&valid.findIndex(v=>v.time===s.time)===valid.findIndex(v=>v.time===s.time);
-    return `<div class="stop-row"><div class="stop-name-col"><div class="stop-name ${i===0||i===stops.length-1?'endpoint':''}">${s.name}</div>${s.km!=null?`<div class="stop-km">${s.km} km</div>`:''}</div><div class="stop-times"><div class="time-chip ${next?'highlight':''} ${past?'past':''}">${s.time||'–'}</div></div></div>`;
+    return `<div class="stop-row"><div class="stop-name-col"><div class="stop-name ${i===0||i===stops.length-1?'endpoint':''}">${s.name}</div>${s.km!=null?`<div class="stop-km">${s.km} km</div>`:''}${s.note?`<div class="stop-note">${s.note}</div>`:''}</div><div class="stop-times"><div class="time-chip ${next?'highlight':''} ${past?'past':''}">${s.time||'–'}</div></div></div>`;
   }).join('');
   const dots=stops.map((s,i)=>`<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot"></div></div>`).join('');
   panel.innerHTML=`<div class="run-detail-head"><div class="run-back" id="runBack"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Svi polasci</div></div><div class="route-panel" style="margin-top:8px;"><div class="route-panel-head"><div><div class="run-summary-title">${first?.time||'—'} · ${first?.name||currentLine.from_name} → ${last?.name||currentLine.to_name}</div><span>${isToday(selectedDate)?'Vozi danas':'Vozni red za '+selectedDate.getDate()+'.'+(selectedDate.getMonth()+1)+'.'+selectedDate.getFullYear()+'.'}</span></div></div><div class="route-body"><div class="rail-col" id="railCol"><div class="rail-line"></div>${dots}</div><div style="flex:1;">${rows}</div></div></div>`;
