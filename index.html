@@ -544,8 +544,9 @@
   }
   .stop-dot.dim{border-color:#B9C4CF;}
   .stop-dot.next{
+    background:var(--amber);
     border-color:var(--amber);
-    box-shadow:0 0 0 4px rgba(244,163,0,0.22);
+    box-shadow:0 0 0 4px rgba(217,166,46,0.22);
   }
   .bus-marker{
     position:absolute;
@@ -798,18 +799,13 @@ function fmtRelative(next){
 function lineDisplayName(line){
   if(!line) return '—';
 
-  const title = (line.title || '').trim();
-  const genericTitle = `Linija ${line.code}`.toLowerCase();
-  const hasMeaningfulTitle = title && title.toLowerCase() !== genericTitle;
-
-  // Za kružne linije (ili kad je u title već spremljen puni naziv trase)
-  // title ima prednost, npr. "GLINA – BREZOVO POLJE – GLINA".
-  if(line.is_circular || hasMeaningfulTitle){
-    return title || line.from_name || `Linija ${line.code}`;
+  if(line.is_circular){
+    return line.title || line.from_name || `Linija ${line.code}`;
   }
 
-  const a = line.from_name || '—';
+  const a = line.from_name || line.title || '—';
   const b = line.to_name || '';
+
   return b ? `${a} – ${b}` : a;
 }
 
@@ -887,13 +883,13 @@ async function renderList(filter=''){
     const nexts=await loadNextDepartures();
     const byId=new Map(nexts.map(x=>[x.line_id,x]));
     const f=filter.trim().toLowerCase();
-    const rows=LINES.filter(l=>{ const hay=[l.code,lineDisplayName(l),l.title,l.from_name,l.to_name].filter(Boolean).join(' ').toLowerCase(); return !f||hay.includes(f); });
+    const rows=LINES.filter(l=>{ const hay=[l.code,l.title,l.from_name,l.to_name].filter(Boolean).join(' ').toLowerCase(); return !f||hay.includes(f); });
     lineListEl.innerHTML=rows.map(line=>{
       const n=byId.get(line.id);
       return `<div class="line-card" data-line="${line.id}">
         <div class="line-badge">${line.code}</div>
         <div class="line-info">
-          <div class="line-route">${lineDisplayName(line)}</div>
+          <div class="line-route">${line.from_name||line.title||'—'} — ${line.to_name||''}</div>
           <div class="line-meta">${n?.stop_count||0} stajališta${line.is_circular?' · kružna':''}</div>
         </div>
         <div class="line-next"><span class="lbl">Sljedeći</span><span class="val ${n?.next_time?'':'off'}">${n?.next_time||'—'}</span></div>
@@ -902,7 +898,7 @@ async function renderList(filter=''){
     lineListEl.querySelectorAll('.line-card').forEach(card=>card.addEventListener('click',()=>openDetail(Number(card.dataset.line))));
   }catch(e){
     console.error(e);
-    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka.</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
   }
 }
 searchInput.addEventListener('input',()=>renderList(searchInput.value));
@@ -917,11 +913,15 @@ async function openDetail(lineId){
   listView.style.display='none';
   detailView.style.display='block';
   document.getElementById('detailBadge').textContent=currentLine.code;
-  document.getElementById('detailTitle').textContent=lineDisplayName(currentLine);
+  document.getElementById('detailTitle').textContent=`${currentLine.from_name||currentLine.title||'—'} — ${currentLine.to_name||''}`;
   document.getElementById('detailSub').textContent=currentLine.is_circular?'Kružna linija':'Vozni red';
   await renderDetail();
   if(flapInterval) clearInterval(flapInterval);
-  flapInterval=setInterval(()=>{ if(currentLine) renderLiveCard(); },15000);
+  flapInterval=setInterval(()=>{
+    if(!currentLine) return;
+    renderLiveCard();
+    if(currentRun) updateRunProgressStyles();
+  },15000);
 }
 
 async function renderDetail(){
@@ -959,7 +959,7 @@ function renderRunList(){
     return `<div class="run-card ${today?'today':''}" data-run="${run.departure_id}">
       <div class="run-time-badge">${first?.time||'—'}</div>
       <div class="run-info">
-        <div class="run-route">${run.route_name || ((first?.name||'—') + ' → ' + (last?.name||'—'))} <span style="color:var(--muted);font-weight:500;">· dolazak ${last?.time||'—'}</span></div>
+        <div class="run-route">${first?.name||'—'} → ${last?.name||'—'} <span style="color:var(--muted);font-weight:500;">· dolazak ${last?.time||'—'}</span></div>
         <div class="run-meta"><span class="run-days-label">Vrijedi za ${DAY_LABELS[isoDay(selectedDate)-1]} · ${dateLabel}</span>${today?'<span class="run-today-chip">Danas</span>':''}</div>
       </div>
       <svg class="run-arrow" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -985,20 +985,74 @@ function renderRunDetail(){
   const run=currentRun;
   const panel=document.getElementById('routePanels');
   const stops=run?.stops||[];
+  const valid=stops.filter(s=>s.time);
+  const first=valid[0],last=valid[valid.length-1];
+
+  const rows=stops.map((s,i)=>{
+    return `<div class="stop-row" data-stop-index="${i}">
+      <div class="stop-name-col">
+        <div class="stop-name ${i===0||i===stops.length-1?'endpoint':''}">${s.name}</div>
+        ${s.km!=null?`<div class="stop-km">${s.km} km</div>`:''}
+        ${s.note?`<div class="stop-note">${s.note}</div>`:''}
+      </div>
+      <div class="stop-times">
+        <div class="time-chip" data-stop-time="${s.time||''}">${s.time||'–'}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const dots=stops.map((s,i)=>
+    `<div style="height:52px;display:flex;align-items:center;">
+      <div class="stop-dot" data-stop-index="${i}"></div>
+    </div>`
+  ).join('');
+
+  panel.innerHTML=`<div class="run-detail-head"><div class="run-back" id="runBack"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Svi polasci</div></div><div class="route-panel" style="margin-top:8px;"><div class="route-panel-head"><div><div class="run-summary-title">${first?.time||'—'} · ${first?.name||currentLine.from_name} → ${last?.name||currentLine.to_name}</div><span>${isToday(selectedDate)?'Vozi danas':'Vozni red za '+selectedDate.getDate()+'.'+(selectedDate.getMonth()+1)+'.'+selectedDate.getFullYear()+'.'}</span></div></div><div class="route-body"><div class="rail-col" id="railCol"><div class="rail-line"></div>${dots}</div><div style="flex:1;">${rows}</div></div></div>`;
+
+  document.getElementById('runBack').addEventListener('click',()=>{
+    currentRun=null;
+    renderRunList();
+  });
+
+  updateRunProgressStyles();
+}
+
+function updateRunProgressStyles(){
+  if(!currentRun) return;
+
+  const stops=currentRun.stops||[];
   const now=new Date();
   const live=isToday(selectedDate);
   const nowMin=now.getHours()*60+now.getMinutes();
-  const valid=stops.filter(s=>s.time);
-  const first=valid[0],last=valid[valid.length-1];
-  const rows=stops.map((s,i)=>{
-    const m=timeMinutes(s.time);
-    const past=live&&m!==null&&m<=nowMin;
-    const next=live&&m!==null&&m>nowMin&&valid.findIndex(v=>v.time===s.time)===valid.findIndex(v=>v.time===s.time);
-    return `<div class="stop-row"><div class="stop-name-col"><div class="stop-name ${i===0||i===stops.length-1?'endpoint':''}">${s.name}</div>${s.km!=null?`<div class="stop-km">${s.km} km</div>`:''}${s.note?`<div class="stop-note">${s.note}</div>`:''}</div><div class="stop-times"><div class="time-chip ${next?'highlight':''} ${past?'past':''}">${s.time||'–'}</div></div></div>`;
-  }).join('');
-  const dots=stops.map((s,i)=>`<div style="height:52px;display:flex;align-items:center;"><div class="stop-dot"></div></div>`).join('');
-  panel.innerHTML=`<div class="run-detail-head"><div class="run-back" id="runBack"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Svi polasci</div></div><div class="route-panel" style="margin-top:8px;"><div class="route-panel-head"><div><div class="run-summary-title">${first?.time||'—'} · ${run.route_name || ((first?.name||currentLine.from_name||'—') + ' → ' + (last?.name||currentLine.to_name||'—'))}</div><span>${isToday(selectedDate)?'Vozi danas':'Vozni red za '+selectedDate.getDate()+'.'+(selectedDate.getMonth()+1)+'.'+selectedDate.getFullYear()+'.'}</span></div></div><div class="route-body"><div class="rail-col" id="railCol"><div class="rail-line"></div>${dots}</div><div style="flex:1;">${rows}</div></div></div>`;
-  document.getElementById('runBack').addEventListener('click',()=>{currentRun=null;renderRunList();});
+
+  let nextIndex=-1;
+
+  if(live){
+    for(let i=0;i<stops.length;i++){
+      const m=timeMinutes(stops[i]?.time);
+      if(m!==null && m>nowMin){
+        nextIndex=i;
+        break;
+      }
+    }
+  }
+
+  document.querySelectorAll('.stop-row[data-stop-index]').forEach(row=>{
+    const i=Number(row.dataset.stopIndex);
+    const chip=row.querySelector('.time-chip');
+    const m=timeMinutes(stops[i]?.time);
+
+    chip?.classList.toggle('highlight', live && i===nextIndex);
+    chip?.classList.toggle('past', live && m!==null && m<=nowMin);
+  });
+
+  document.querySelectorAll('.stop-dot[data-stop-index]').forEach(dot=>{
+    const i=Number(dot.dataset.stopIndex);
+    const m=timeMinutes(stops[i]?.time);
+
+    dot.classList.toggle('next', live && i===nextIndex);
+    dot.classList.toggle('dim', !live || m===null || (m!==null && m<=nowMin));
+  });
 }
 
 async function renderLiveCard(){
@@ -1008,7 +1062,7 @@ async function renderLiveCard(){
     const {data,error}=await db.rpc('get_lines_with_next_departure',{p_date:toISODate(now),p_now:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`});
     if(error) throw error;
     const n=(data||[]).find(x=>x.line_id===currentLine.id);
-    document.getElementById('liveDesc').textContent=n?.next_time ? directionLabel(n.next_direction) : 'Nema više polazaka';
+    document.getElementById('liveDesc').textContent=n?.next_time ? (n.next_direction==='polazak'?`${currentLine.from_name} → ${currentLine.to_name}`:`${currentLine.to_name} → ${currentLine.from_name}`) : 'Nema više polazaka';
     renderFlap(n?.next_time||'--:--');
   }catch(e){ console.error(e); }
 }
