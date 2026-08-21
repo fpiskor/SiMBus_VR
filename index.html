@@ -795,8 +795,30 @@ function fmtRelative(next){
   if(next.offset===1) return 'sutra ' + next.time;
   return DAY_LABELS[(isoDay(new Date())-1+next.offset)%7] + ' ' + next.time;
 }
+function lineDisplayName(line){
+  if(!line) return '—';
+
+  if(line.is_circular){
+    return line.title || line.from_name || `Linija ${line.code}`;
+  }
+
+  const a = line.from_name || line.title || '—';
+  const b = line.to_name || '';
+
+  return b ? `${a} – ${b}` : a;
+}
+
 function directionLabel(dir){
-  const a=currentLine.from_name||currentLine.title||'—', b=currentLine.to_name||'—'; return dir==='polazak' ? `${a} → ${b}` : `${b} → ${a}`;
+  if(currentLine?.is_circular){
+    return lineDisplayName(currentLine);
+  }
+
+  const a = currentLine.from_name || currentLine.title || '—';
+  const b = currentLine.to_name || '—';
+
+  return dir === 'polazak'
+    ? `${a} → ${b}`
+    : `${b} → ${a}`;
 }
 
 async function initDB(){
