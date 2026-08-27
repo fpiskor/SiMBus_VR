@@ -1090,5 +1090,14 @@ setInterval(()=>{if(listView.style.display!=='none') renderList(searchInput.valu
   }
 })();
 </script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('./service-worker.js')
+      .catch(err => console.error('Service worker:', err));
+  });
+}
+</script>
 </body>
 </html>
