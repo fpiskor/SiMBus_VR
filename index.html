@@ -1106,7 +1106,7 @@ function tickClock(){
   const d=new Date(),label=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
   document.querySelectorAll('#listClock span:last-child,#detailClock span:last-child').forEach(x=>x.textContent=label);
 }
-tickClock();setInterval(tickClock,30000);
+tickClock();setInterval(tickClock,1000);
 setInterval(()=>{if(listView.style.display!=='none') renderList(searchInput.value);},30000);
 
 (async function(){
