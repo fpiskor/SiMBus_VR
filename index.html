@@ -105,6 +105,18 @@
     letter-spacing:0.4px;
     text-transform:uppercase;
   }
+.unofficial-badge{
+  display:inline-block;
+  margin-top:4px;
+  padding:2px 7px;
+  border-radius:999px;
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:.6px;
+  color:#B9CBDE;
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.06);
+}
   .search-wrap{
     position:relative;
   }
@@ -723,6 +735,7 @@
         <div>
           <div class="brand-name"><span class="sim">SiM</span><span class="bus">Bus</span></div>
           <div class="brand-sub">Vozni red uživo</div>
+            <div class="unofficial-badge">NESLUŽBENA APLIKACIJA</div>
         </div>
         <div class="live-clock" id="listClock"><span class="dot"></span><span></span></div>
       </div>
@@ -916,7 +929,7 @@ async function renderList(filter=''){
     lineListEl.querySelectorAll('.line-card').forEach(card=>card.addEventListener('click',()=>openDetail(Number(card.dataset.line))));
   }catch(e){
     console.error(e);
-    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka.</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
+    lineListEl.innerHTML=`<div class="empty-state error-state"><p>Greška pri dohvaćanju podataka !!!</p><small style="display:block;margin-top:8px;word-break:break-word;">${e?.message||String(e)}</small></div>`;
   }
 }
 searchInput.addEventListener('input',()=>renderList(searchInput.value));
@@ -1090,10 +1103,10 @@ function renderFlap(t){
 }
 
 function tickClock(){
-  const d=new Date(),label=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const d=new Date(),label=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
   document.querySelectorAll('#listClock span:last-child,#detailClock span:last-child').forEach(x=>x.textContent=label);
 }
-tickClock();setInterval(tickClock,1000);
+tickClock();setInterval(tickClock,30000);
 setInterval(()=>{if(listView.style.display!=='none') renderList(searchInput.value);},30000);
 
 (async function(){
